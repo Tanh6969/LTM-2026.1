@@ -1,9 +1,9 @@
 import '../styles/index.css';
-import MainLayout from "../layouts/MainLayout";
-import AdminLayout from "../layouts/AdminLayout";
-import { AuthProvider } from '../context/AuthContext';
+import MainLayout from "//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/layouts/MainLayout";
+import AdminLayout from "//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/layouts/AdminLayout";
+import { AuthProvider } from '//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/context/AuthContext';
 import { useRouter } from "next/router";
-import { useAppLogic } from '../hooks/useAppLogic';
+import { useAppLogic } from '//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/hooks/useAppLogic';
 import { Toaster } from "@/components/ui/toaster";
 function MyApp({ Component, pageProps }) {
   const router = useRouter();
@@ -14,16 +14,16 @@ function MyApp({ Component, pageProps }) {
 
   return (
     <AuthProvider>
-      {isValidAdminPage ? 
-      ( isAdminLoginPage ? <Component {...pageProps} /> :
-        <AdminLayout>
-          <Component {...pageProps} />
-        </AdminLayout>
-      ) : (
-        <MainLayout>
-          <Component {...pageProps} />
-        </MainLayout>
-      )}
+      {isValidAdminPage ?
+        (isAdminLoginPage ? <Component {...pageProps} /> :
+          <AdminLayout>
+            <Component {...pageProps} />
+          </AdminLayout>
+        ) : (
+          <MainLayout>
+            <Component {...pageProps} />
+          </MainLayout>
+        )}
       <Toaster />
 
       {showScrollTopButton && (
