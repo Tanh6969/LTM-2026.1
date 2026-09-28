@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 
 const AuthContext = createContext({
   isAuthenticated: false,
@@ -15,13 +15,32 @@ export function AuthProvider({ children }) {
     avatar: "/AvatarUser/giang.jpg",
   });
 
-  const login = (userData) => {
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("token");
+      if (token) {
+        setIsAuthenticated(true);
+      }
+    }
+  }, []);
+
+  const login = (tokenOrUser) => {
     setIsAuthenticated(true);
-    if (userData) setUser(userData);
+    if (typeof tokenOrUser === "string") {
+      localStorage.setItem("token", tokenOrUser);
+    } else if (tokenOrUser && typeof tokenOrUser === "object") {
+      if (tokenOrUser.token) {
+        localStorage.setItem("token", tokenOrUser.token);
+      }
+      setUser((prev) => ({ ...prev, ...tokenOrUser }));
+    }
   };
 
   const logout = () => {
     setIsAuthenticated(false);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token");
+    }
   };
 
   return (
