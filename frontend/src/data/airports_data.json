@@ -1,0 +1,30 @@
+[
+  {
+    "region": "Miền Bắc",
+    "airports": [
+      { "code": "HAN", "city": "Hà Nội" },
+      { "code": "HPH", "city": "Hải Phòng" },
+      { "code": "VDO", "city": "Vân Đồn, Quảng Ninh" },
+      { "code": "DIN", "city": "Điện Biên Phủ" }
+    ]
+  },
+  {
+    "region": "Miền Trung",
+    "airports": [
+      { "code": "DAD", "city": "Đà Nẵng" },
+      { "code": "CXR", "city": "Nha Trang, Khánh Hòa" },
+      { "code": "HUI", "city": "Huế" },
+      { "code": "UIH", "city": "Quy Nhơn, Bình Định" },
+      { "code": "DLI", "city": "Đà Lạt, Lâm Đồng" }
+    ]
+  },
+  {
+    "region": "Miền Nam",
+    "airports": [
+      { "code": "SGN", "city": "TP. Hồ Chí Minh" },
+      { "code": "PQC", "city": "Phú Quốc, Kiên Giang" },
+      { "code": "VCA", "city": "Cần Thơ" },
+      { "code": "VCS", "city": "Côn Đảo" }
+    ]
+  }
+]

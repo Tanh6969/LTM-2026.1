@@ -1,10 +1,10 @@
 // pages/index.js
 import React from "react";
-import Hero from "//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/components/hero";
-import Destination from "//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/components/destination";
-import About from "//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/components/about";
-import Review from "//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/components/review";
-import Benefit from "//wsl.localhost/Ubuntu/home/tanh/Projects/Qairlines/frontend/src/components/benefit";
+import Hero from "@/components/hero";
+import Destination from "@/components/destination";
+import About from "@/components/about";
+import Review from "@/components/review";
+import Benefit from "@/components/benefit";
 import AOS from "aos";
 import "aos/dist/aos.css";
 import { useEffect } from "react";

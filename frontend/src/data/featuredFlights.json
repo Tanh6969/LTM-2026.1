@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "from": "Hà Nội",
+    "to": "Đà Nẵng",
+    "date": "15/10/2026",
+    "price": "1.250.000",
+    "views": "1.2k lượt xem",
+    "position": "Phổ biến",
+    "image": "/golden_bridge.jpg"
+  },
+  {
+    "id": 2,
+    "from": "TP. Hồ Chí Minh",
+    "to": "Phú Quốc",
+    "date": "20/10/2026",
+    "price": "980.000",
+    "views": "2.5k lượt xem",
+    "position": "Hot",
+    "image": "/phu-quoc.jpg"
+  },
+  {
+    "id": 3,
+    "from": "Hà Nội",
+    "to": "Quy Nhơn",
+    "date": "22/10/2026",
+    "price": "1.100.000",
+    "views": "850 lượt xem",
+    "position": "Ưu đãi",
+    "image": "/quy-nhon.jpg"
+  },
+  {
+    "id": 4,
+    "from": "TP. Hồ Chí Minh",
+    "to": "Bangkok",
+    "date": "28/10/2026",
+    "price": "2.350.000",
+    "views": "3.1k lượt xem",
+    "position": "Quốc tế",
+    "image": "/bangkok.jpg"
+  },
+  {
+    "id": 5,
+    "from": "Hà Nội",
+    "to": "Đà Lạt",
+    "date": "05/11/2026",
+    "price": "1.450.000",
+    "views": "1.8k lượt xem",
+    "position": "Lãng mạn",
+    "image": "/dalat_diocese_cathedral.jpg"
+  },
+  {
+    "id": 6,
+    "from": "Đà Nẵng",
+    "to": "TP. Hồ Chí Minh",
+    "date": "10/11/2026",
+    "price": "1.050.000",
+    "views": "920 lượt xem",
+    "position": "Nổi bật",
+    "image": "/landmark81.jpg"
+  }
+]
