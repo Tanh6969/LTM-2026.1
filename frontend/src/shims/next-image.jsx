@@ -9,8 +9,14 @@ export default function Image({
   style = {},
   priority,
   layout,
+  objectFit,
   ...props
 }) {
+  const mergedStyle = {
+    ...style,
+    ...(objectFit ? { objectFit } : {}),
+  };
+
   return (
     <img
       src={src}
@@ -18,7 +24,7 @@ export default function Image({
       width={width}
       height={height}
       className={className}
-      style={style}
+      style={mergedStyle}
       loading={priority ? 'eager' : 'lazy'}
       {...props}
     />
