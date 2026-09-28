@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { MapPin, Phone, Mail, Github, Linkedin, Facebook,  } from 'lucide-react'
+import { MapPin, Phone, Mail } from 'lucide-react'
+import { FaGithub as Github, FaLinkedin as Linkedin, FaFacebook as Facebook } from 'react-icons/fa'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
