@@ -137,6 +137,10 @@ export const useFlightData = (departureCity, arrivalCity, flightDate) => {
   const fetchFlights = useCallback(
     async (from, to, date, setState) => {
       try {
+        if (!API_BASE_URL) {
+          setState(getFallbackFlights(from, to));
+          return;
+        }
         const url = `${API_BASE_URL}/api/flight/search?departureCity=${from}&arrivalCity=${to}&flightDate=${date}`;
         const response = await fetch(url);
 
@@ -152,10 +156,11 @@ export const useFlightData = (departureCity, arrivalCity, flightDate) => {
           throw new Error(result.message || "Dữ liệu không hợp lệ từ API search");
         }
       } catch (err) {
-        setError(err.message);
+        console.warn("API search error, falling back to mock data:", err);
+        setState(getFallbackFlights(from, to));
       }
     },
-    [setError] // Chỉ thêm những biến state hoặc props mà hàm này phụ thuộc
+    []
   );
 
   /**
@@ -165,6 +170,10 @@ export const useFlightData = (departureCity, arrivalCity, flightDate) => {
   const fetchSuggestedFlights = useCallback(
     async (setState) => {
       try {
+        if (!API_BASE_URL) {
+          setState(getFallbackFlights());
+          return;
+        }
         const response = await fetch(`${API_BASE_URL}/api/flight?page=1&limit=10`);
         if (!response.ok) {
           throw new Error(`Lỗi khi gọi API suggest: ${response.statusText}`);
@@ -178,10 +187,11 @@ export const useFlightData = (departureCity, arrivalCity, flightDate) => {
           throw new Error(result.message || "Dữ liệu không hợp lệ từ API suggest");
         }
       } catch (err) {
-        setError(err.message);
+        console.warn("API suggest error, falling back to mock data:", err);
+        setState(getFallbackFlights());
       }
     },
-    [setError]
+    []
   );
 
   /**
@@ -228,7 +238,9 @@ export const useFlightData = (departureCity, arrivalCity, flightDate) => {
         flight.economyPrice >= filters.budget[0] &&
         flight.economyPrice <= filters.budget[1];
 
-      const hour = flight.departureTimeRaw.getHours();
+      const hour = flight.departureTimeRaw instanceof Date && !isNaN(flight.departureTimeRaw)
+        ? flight.departureTimeRaw.getHours()
+        : parseInt(flight.departureTime ? flight.departureTime.split(":")[0] : "0", 10);
       const inTimeRange =
         filters.departureTime === "all" ||
         (filters.departureTime === "morning" && hour >= 0 && hour < 12) ||
