@@ -10,6 +10,9 @@ import SignupForm from "@/pages/signup";
 import TrangLienHe from "@/pages/contact";
 import AccountPage from "@/pages/my-account";
 import FlightBookingPage from "@/pages/booking-management/index";
+import FlightBooking from "@/pages/flights/index";
+import FlightLoading from "@/pages/flights/loading";
+import CheckInPage from "@/pages/check-in/index";
 import Custom404 from "@/pages/404";
 
 export default function App() {
@@ -27,11 +30,13 @@ export default function App() {
 
   const navigateTo = (path) => {
     window.history.pushState({}, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
     setCurrentPath(path);
   };
 
   const renderPage = () => {
-    switch (currentPath) {
+    const path = currentPath.split("?")[0];
+    switch (path) {
       case "/":
         return <Home />;
       case "/login":
@@ -44,10 +49,24 @@ export default function App() {
         return <AccountPage />;
       case "/booking-management":
         return <FlightBookingPage />;
+      case "/check-in":
+        return <CheckInPage />;
+      case "/flights":
+        return <FlightBooking />;
+      case "/flights/loading":
+        return <FlightLoading />;
       default:
-        // Also support if path starts with
-        if (currentPath.startsWith("/booking-management")) {
+        if (path.startsWith("/booking-management")) {
           return <FlightBookingPage />;
+        }
+        if (path.startsWith("/check-in")) {
+          return <CheckInPage />;
+        }
+        if (path.startsWith("/flights/loading")) {
+          return <FlightLoading />;
+        }
+        if (path.startsWith("/flights")) {
+          return <FlightBooking />;
         }
         return <Custom404 />;
     }
@@ -58,11 +77,11 @@ export default function App() {
   return (
     <AuthProvider>
       {/* Floating Demo Navigation Toolbar */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] bg-white/95 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl border border-gray-200 flex items-center gap-2 text-xs font-medium">
-        <span className="text-gray-500 font-bold px-1 hidden sm:inline">Trang thử nghiệm:</span>
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] bg-white/95 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl border border-gray-200 flex items-center gap-1.5 text-xs font-medium max-w-[95vw] overflow-x-auto">
+        <span className="text-gray-500 font-bold px-1 hidden md:inline shrink-0">Trang thử nghiệm:</span>
         <button
           onClick={() => navigateTo("/")}
-          className={`px-3 py-1.5 rounded-full transition-all ${
+          className={`px-3 py-1.5 rounded-full transition-all shrink-0 ${
             currentPath === "/"
               ? "bg-[#e8604c] text-white shadow-sm font-semibold"
               : "hover:bg-gray-100 text-gray-700"
@@ -71,28 +90,38 @@ export default function App() {
           Trang chủ
         </button>
         <button
-          onClick={() => navigateTo("/login")}
-          className={`px-3 py-1.5 rounded-full transition-all ${
-            currentPath === "/login"
+          onClick={() => navigateTo("/flights")}
+          className={`px-3 py-1.5 rounded-full transition-all shrink-0 ${
+            currentPath.startsWith("/flights")
               ? "bg-[#e8604c] text-white shadow-sm font-semibold"
               : "hover:bg-gray-100 text-gray-700"
           }`}
         >
-          Đăng nhập
+          Chuyến bay
         </button>
         <button
-          onClick={() => navigateTo("/signup")}
-          className={`px-3 py-1.5 rounded-full transition-all ${
-            currentPath === "/signup"
+          onClick={() => navigateTo("/check-in")}
+          className={`px-3 py-1.5 rounded-full transition-all shrink-0 ${
+            currentPath.startsWith("/check-in")
               ? "bg-[#e8604c] text-white shadow-sm font-semibold"
               : "hover:bg-gray-100 text-gray-700"
           }`}
         >
-          Đăng ký
+          Check-in
+        </button>
+        <button
+          onClick={() => navigateTo("/booking-management")}
+          className={`px-3 py-1.5 rounded-full transition-all shrink-0 ${
+            currentPath.startsWith("/booking-management")
+              ? "bg-[#e8604c] text-white shadow-sm font-semibold"
+              : "hover:bg-gray-100 text-gray-700"
+          }`}
+        >
+          Quản lý đặt chỗ
         </button>
         <button
           onClick={() => navigateTo("/contact")}
-          className={`px-3 py-1.5 rounded-full transition-all ${
+          className={`px-3 py-1.5 rounded-full transition-all shrink-0 ${
             currentPath === "/contact"
               ? "bg-[#e8604c] text-white shadow-sm font-semibold"
               : "hover:bg-gray-100 text-gray-700"
@@ -102,7 +131,7 @@ export default function App() {
         </button>
         <button
           onClick={() => navigateTo("/my-account")}
-          className={`px-3 py-1.5 rounded-full transition-all ${
+          className={`px-3 py-1.5 rounded-full transition-all shrink-0 ${
             currentPath === "/my-account"
               ? "bg-[#e8604c] text-white shadow-sm font-semibold"
               : "hover:bg-gray-100 text-gray-700"
@@ -111,14 +140,24 @@ export default function App() {
           Tài khoản
         </button>
         <button
-          onClick={() => navigateTo("/booking-management")}
-          className={`px-3 py-1.5 rounded-full transition-all ${
-            currentPath.startsWith("/booking-management")
+          onClick={() => navigateTo("/login")}
+          className={`px-3 py-1.5 rounded-full transition-all shrink-0 ${
+            currentPath === "/login"
               ? "bg-[#e8604c] text-white shadow-sm font-semibold"
               : "hover:bg-gray-100 text-gray-700"
           }`}
         >
-          Quản lý đặt chỗ
+          Đăng nhập
+        </button>
+        <button
+          onClick={() => navigateTo("/signup")}
+          className={`px-3 py-1.5 rounded-full transition-all shrink-0 ${
+            currentPath === "/signup"
+              ? "bg-[#e8604c] text-white shadow-sm font-semibold"
+              : "hover:bg-gray-100 text-gray-700"
+          }`}
+        >
+          Đăng ký
         </button>
       </div>
 
