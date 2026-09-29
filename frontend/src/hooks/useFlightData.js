@@ -1,14 +1,32 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import initialFlightsData from "@/data/flights.json";
 
 /** KHAI BÁO CÁC CONSTANTS */
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-const DEFAULT_BUDGET_RANGE = [100000, 4000000];
+const DEFAULT_BUDGET_RANGE = [100000, 10000000];
 const BUSINESS_PRICE_MULTIPLIER = 1.5;
 const ECONOMY_CHANGE_FEE = 860000;
 const BUSINESS_CHANGE_FEE = 360000;
 const SUGGESTED_MIN_SEATS = 10;
 const SUGGESTED_MAX_SEATS = 100;
+
+function getFallbackFlights(from, to) {
+  return initialFlightsData.map((flight) => {
+    const today = new Date();
+    const [depH, depM] = (flight.departureTime || "08:00").split(":").map(Number);
+    const [arrH, arrM] = (flight.arrivalTime || "10:00").split(":").map(Number);
+    const depDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), depH, depM);
+    const arrDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), arrH, arrM);
+    return {
+      ...flight,
+      departureCode: from || flight.departureCode || "HAN",
+      arrivalCode: to || flight.arrivalCode || "SGN",
+      departureTimeRaw: depDate,
+      arrivalTimeRaw: arrDate,
+    };
+  });
+}
 
 /**
  * Chuyển dữ liệu API sang định dạng cần thiết
