@@ -52,7 +52,7 @@ export default function Hero() {
           <h4 className="lg:text-[52px] text-3xl text-white mt-5">
             Bạn muốn bay đến những đâu?
           </h4>
-          <p className="text-gray text-2xl my-8">
+          <p className="text-white text-2xl my-8">
             Khám phá những điểm đến tuyệt đẹp.
           </p>
         </div>
