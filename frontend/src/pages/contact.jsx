@@ -51,7 +51,7 @@ const TrangLienHe = () => {
               <div className="space-y-4">
                 <div className="flex items-center">
                   <MapPin className="h-6 w-6 text-primary mr-2" />
-                  <span>Nhà E3, 144 Xuân Thủy, quận Cầu Giấy, Hà Nội , Việt Nam</span>
+                  <span>Số 1 Đại Cồ Việt, phường Bách Khoa, quận Hai Bà Trưng, Hà Nội, Việt Nam</span>
                 </div>
                 <div className="flex items-center">
                   <Phone className="h-6 w-6 text-primary mr-2" />
@@ -151,4 +151,3 @@ const TrangLienHe = () => {
 }
 
 export default TrangLienHe
-

@@ -90,7 +90,7 @@ export default function Benefit() {
           <div className="lg:w-[55%] lg:pl-24 px-6">
             <p className="text-xl text-orange" data-aos="fade-up">Danh sách lợi ích của chúng tôi</p>
             <h4 className="text-white lg:text-[50px] text-[30px] py-4" data-aos="fade-up">Tại sao chọn QAirline</h4>
-            <p className="text-gray leading-8" data-aos="fade-down">
+            <p className="text-white/75 leading-8" data-aos="fade-down">
               Chúng tôi tự hào mang đến trải nghiệm đặt vé máy bay trực tuyến tiện lợi và an toàn, với những tính năng vượt trội và dịch vụ khách hàng tận tâm, giúp bạn dễ dàng tìm kiếm chuyến bay tốt nhất với giá cả hợp lý.
             </p>
 
@@ -101,7 +101,7 @@ export default function Benefit() {
               </span>
               <span>
                 <h6 className="text-white text-xl">Chuyên nghiệp và được chứng nhận</h6>
-                <p className="text-gray leading-8 py-4">
+                <p className="text-white/75 leading-8 py-4">
                 Chúng tôi hợp tác với các hãng hàng không uy tín và đã được chứng nhận, đảm bảo chuyến bay của bạn luôn an toàn và chất lượng. Đội ngũ chuyên nghiệp luôn hỗ trợ bạn 24/7.
                 </p>
               </span>
@@ -112,7 +112,7 @@ export default function Benefit() {
               </span>
               <span>
                 <h6 className="text-white text-xl">Đặt vé ngay lập tức</h6>
-                <p className="text-gray leading-8 py-4">
+                <p className="text-white/75 leading-8 py-4">
                   Dễ dàng lên lịch trình và đặt vé chỉ trong vài bước. Nhận xác nhận tức thì và tận hưởng những ưu đãi hấp dẫn khi đặt vé trên nền tảng của chúng tôi.
                 </p>
               </span>

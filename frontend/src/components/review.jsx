@@ -45,13 +45,14 @@ const responsives = {
 
 const Card = ({ image, name, position, review, rating }) => (
   <div className="flex flex-col items-center">
-    <div className="relative w-[300px] h-[300px] rounded-full overflow-hidden">
+    <div className="relative h-[300px] w-[300px] shrink-0 overflow-hidden rounded-full">
       <Image
         src={image}
         alt={name}
-        layout="fill" // Sử dụng layout fill để hình ảnh phủ đầy container
-        objectFit="cover" // Đảm bảo hình ảnh không bị méo, tự động crop vừa khung
-        className="rounded-full"
+        width={300}
+        height={300}
+        objectFit="cover"
+        className="h-full w-full rounded-full"
       />
     </div>
     <div className="shadow-lg rounded-lg mt-10 bg-white p-8 text-center">

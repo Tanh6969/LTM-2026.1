@@ -32,7 +32,7 @@ export default function Footer() {
                 <MdOutlineMailOutline className="text-orange" /> qairline-support@qairline.website
               </a>
               <a href="#" className="flex items-center gap-2 hover:text-orange">
-                <MdOutlineLocationOn className="text-orange" /> Nhà E3, 144 Xuân Thủy, quận Cầu Giấy, Hà Nội , Việt Nam
+                <MdOutlineLocationOn className="text-orange" /> Số 1 Đại Cồ Việt, phường Bách Khoa, quận Hai Bà Trưng, Hà Nội, Việt Nam
               </a>
             </ul>
           </div>
