@@ -4,7 +4,7 @@ import { User } from "lucide-react";
 export function FlightHeader({ departureCode, arrivalCode, departureCity, arrivalCity, departureDate, returnDate, passengers }) {
   return (
     <>
-      <div className="relative h-[300px] w-full">
+      <div className="relative h-[300px] w-full overflow-hidden">
         <Image
           src="/tours_background.jpg"
           alt=""
