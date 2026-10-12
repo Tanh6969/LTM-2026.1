@@ -163,7 +163,7 @@ export default function Review() {
                   layout="intrinsic"
                   width={298}
                   height={298}
-                  className="rounded-lg hoverImg"
+                  className="rounded-lg hoverImg h-full w-full object-cover"
                 />
               </div>
             ))}

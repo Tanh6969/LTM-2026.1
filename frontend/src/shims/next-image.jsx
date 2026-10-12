@@ -14,6 +14,13 @@ export default function Image({
   ...props
 }) {
   const isFill = Boolean(fill || layout === 'fill');
+
+  // Handle object src (imported images)
+  const resolvedSrc =
+    typeof src === 'object' && src !== null
+      ? (src.default || src.src || '')
+      : src;
+
   const fillStyle = isFill
     ? {
         position: 'absolute',
@@ -25,18 +32,28 @@ export default function Image({
       }
     : {};
 
+  const layoutStyle = {};
+  if (layout === 'responsive') {
+    layoutStyle.width = '100%';
+    layoutStyle.height = 'auto';
+  } else if (layout === 'intrinsic') {
+    layoutStyle.maxWidth = '100%';
+    layoutStyle.height = 'auto';
+  }
+
   const mergedStyle = {
     ...fillStyle,
+    ...layoutStyle,
     ...style,
-    ...(objectFit ? { objectFit } : {}),
+    ...(objectFit && !isFill ? { objectFit } : {}),
   };
 
   return (
     <img
-      src={src}
+      src={resolvedSrc}
       alt={alt}
-      width={width}
-      height={height}
+      {...(!isFill && width ? { width } : {})}
+      {...(!isFill && height ? { height } : {})}
       className={className}
       style={mergedStyle}
       loading={priority ? 'eager' : 'lazy'}

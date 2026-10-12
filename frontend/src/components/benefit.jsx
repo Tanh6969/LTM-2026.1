@@ -36,54 +36,97 @@ const responsive = {
 
 export default function Benefit() {
   const router = useRouter()
-  const [featuredArticles, setFeaturedArticles] = useState([])
+  const defaultArticles = [
+    {
+      slug: "nhung-dieu-can-xem-va-lam-khi-den-tham-nhat-ban",
+      image: "/News/home_post-1.jpg",
+      title: "Những điều cần xem và làm khi đến thăm Nhật Bản",
+      date: { day: "08", month: "Tháng 12" },
+      author: "Phạm Nhật Dương",
+      comments: 0,
+      description: "Khám phá văn hóa Nhật Bản với những địa điểm đẹp và những hoạt động thú vị.",
+    },
+    {
+      slug: "mot-noi-de-bat-dau-cuoc-song-moi-voi-su-binh-yen",
+      image: "/News/home_post-3.jpg",
+      title: "Một nơi để bắt đầu cuộc sống mới với sự bình yên",
+      date: { day: "15", month: "Tháng 12" },
+      author: "Nguyễn Văn An",
+      comments: 3,
+      description: "Địa điểm lý tưởng để nghỉ ngơi và tận hưởng cuộc sống chậm lại.",
+    },
+    {
+      slug: "nhung-hanh-trinh-duoc-do-luong-tot-nhat-voi-ban-be",
+      image: "/News/home_post-4.jpg",
+      title: "Những hành trình được đo lường tốt nhất với bạn bè",
+      date: { day: "20", month: "Tháng 12" },
+      author: "Trần Thị Bảo",
+      comments: 5,
+      description: "Cùng bạn bè khám phá những hành trình đầy ý nghĩa và kỷ niệm đáng nhớ.",
+    },
+    {
+      slug: "du-lich-den-nhung-noi-dep-nhat-tren-the-gioi",
+      image: "/News/home_post-2.jpg",
+      title: "Du lịch đến những nơi đẹp nhất trên thế giới",
+      date: { day: "25", month: "Tháng 12" },
+      author: "Lê Minh Cường",
+      comments: 2,
+      description: "Những địa danh nổi tiếng mang vẻ đẹp mê hoặc trên thế giới.",
+    },
+  ];
+
+  const [featuredArticles, setFeaturedArticles] = useState(defaultArticles);
 
   useEffect(() => {
-    getAllNews()
+    getAllNews();
   }, [router]);
 
   const getAllNews = async () => {
-    const getAllNewsApi = `${process.env.NEXT_PUBLIC_API_BASE_URL}GET /api/news?page=1&limit=10`
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+    const getAllNewsApi = `${apiBase}/api/news?page=1&limit=10`;
 
     try {
       const response = await fetch(getAllNewsApi, {
-          method: "GET",
-      })
+        method: "GET",
+      });
       if (!response.ok) {
-          throw new Error("Send request failed")
+        throw new Error("Send request failed");
       }
 
-      const res = await response.json()
+      const res = await response.json();
 
-      setFeaturedArticles(res.map(a => {return {
-        "slug": a.newsId,
-        "image": a.image,
-        "title": a.title,
-        "description": a.description,
-        "author": a.authorId,
-        "content": a.content,
-        "date": a.createAt.seconds ? new Date(a.arrival_time).toISOString().replace("T", " ").slice(0, -5) : a.createAt.split('T')[0],
-        "buttonText": "Đọc thêm",
-        "authorTitle": "Nhà báo",
-        "authorImage": "/AvatarUser/no_avatar.jpg",
-      }}))
-
+      if (Array.isArray(res) && res.length > 0) {
+        setFeaturedArticles(
+          res.map((a) => ({
+            slug: a.newsId,
+            image: a.image || "/News/home_post-1.jpg",
+            title: a.title,
+            description: a.description,
+            author: a.authorId,
+            content: a.content,
+            date: { day: "01", month: "Tháng 1" },
+            buttonText: "Đọc thêm",
+            authorTitle: "Nhà báo",
+            authorImage: "/AvatarUser/no_avatar.jpg",
+          }))
+        );
+      }
     } catch (error) {
-        // alert("Đã xảy ra lối, vui lòng thử lại(fixed)")
+      // Keep defaultArticles on failure
     }
-  }
+  };
   return (
     <div>
       {/* Phần giới thiệu */}
       <section className="lg:flex">
         <div className="lg:w-[45%]" data-aos="fade-down">
-        <Image
-          src="/bg-2.jpg"
-          alt="Background"
-          width={1000}
-          height={900}
-          className="h-full"
-        />
+          <Image
+            src="/bg-2.jpg"
+            alt="Background"
+            width={1000}
+            height={900}
+            className="w-full h-full object-cover"
+          />
         </div>
         <div className="relative lg:w-[55%] bg-[url(/bg-map-2.png)] bg-[#313041] bg-right-bottom bg-contain flex flex-col justify-center py-16">
           <div className="absolute lg:w-3 w-0 bg-orange left-0 rounded-r-[10px] top-[120px] bottom-[120px]"></div>
