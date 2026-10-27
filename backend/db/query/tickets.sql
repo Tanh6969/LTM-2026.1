@@ -1,5 +1,7 @@
+-- seat_id có thể NULL: hành khách chọn ghế sau (bước check-in).
 -- name: CreateTicket :one
 INSERT INTO tickets (
+        ticket_code,
         seat_id,
         flight_class,
         price,
@@ -7,10 +9,11 @@ INSERT INTO tickets (
         booking_id,
         flight_id
     )
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 -- name: GetTicketByID :one
 SELECT t.ticket_id,
+    t.ticket_code,
     t.status,
     t.flight_class,
     t.price,
@@ -20,8 +23,7 @@ SELECT t.ticket_id,
     t.updated_at,
     s.seat_code,
     s.seat_id,
-    s.is_available,
-    s.flight_id,
+    s.status AS seat_status,
     s.class AS seat_class,
     o.first_name AS owner_first_name,
     o.last_name AS owner_last_name,
@@ -35,6 +37,11 @@ FROM Tickets t
     LEFT JOIN Seats s ON t.seat_id = s.seat_id
     LEFT JOIN TicketOwnerSnapshots o ON t.ticket_id = o.ticket_id
 WHERE t.ticket_id = $1;
+-- name: GetTicketByCode :one
+SELECT *
+FROM tickets
+WHERE ticket_code = $1
+LIMIT 1;
 -- name: ListTickets :many
 SELECT *
 FROM tickets
@@ -44,6 +51,11 @@ LIMIT $1 OFFSET $2;
 SELECT *
 FROM tickets
 WHERE flight_id = $1
+ORDER BY ticket_id;
+-- name: GetTicketsByBookingID :many
+SELECT *
+FROM tickets
+WHERE booking_id = $1
 ORDER BY ticket_id;
 -- name: DeleteTicket :exec
 DELETE FROM tickets
@@ -59,6 +71,7 @@ SET flight_class = $2,
 WHERE ticket_id = $1;
 -- name: GetTicketsByFlightID :many
 SELECT t.ticket_id,
+    t.ticket_code,
     t.seat_id,
     t.flight_class,
     t.price,
@@ -68,7 +81,7 @@ SELECT t.ticket_id,
     t.created_at,
     t.updated_at,
     s.seat_code,
-    s.is_available,
+    s.status AS seat_status,
     s.class AS seat_class,
     o.first_name AS owner_first_name,
     o.last_name AS owner_last_name,
@@ -88,18 +101,28 @@ SET status = $2,
     updated_at = NOW()
 WHERE ticket_id = $1
 RETURNING *;
+-- Chỉ hủy được vé còn hiệu lực và chuyến bay khởi hành sau mốc cutoff
+-- (ví dụ cutoff = now() + 24h để áp dụng chính sách "hủy trước 24 giờ").
+-- Không có dòng trả về = vé không tồn tại, đã hủy, hoặc đã quá hạn hủy.
 -- name: CancelTicket :one
 UPDATE Tickets
 SET status = 'Cancelled',
     updated_at = NOW()
-WHERE Tickets.ticket_id = $1
+WHERE Tickets.ticket_id = sqlc.arg(ticket_id)
     AND status = 'Active'
+    AND (
+        SELECT departure_time
+        FROM Flights
+        WHERE Flights.flight_id = Tickets.flight_id
+    ) > sqlc.arg(cutoff)::timestamptz
 RETURNING ticket_id,
+    ticket_code,
     status,
     flight_class,
     price,
     booking_id,
     flight_id,
+    seat_id,
     updated_at,
     (
         SELECT seat_code
@@ -121,18 +144,17 @@ RETURNING ticket_id,
         FROM TicketOwnerSnapshots
         WHERE ticket_id = Tickets.ticket_id
     ) AS owner_phone_number;
--- name: UpdateSeat :one
-UPDATE Seats
-SET seat_code = $2
-WHERE seat_id = (
-        SELECT seat_id
-        FROM Tickets
-        WHERE ticket_id = $1
-            AND seat_id IS NOT NULL
-    )
+-- Gán vé sang một ghế khác (đổi ghế). Ghế cũ/mới được cập nhật trạng thái bằng các query trong seats.sql.
+-- name: AssignSeatToTicket :one
+UPDATE Tickets
+SET seat_id = $2,
+    updated_at = NOW()
+WHERE ticket_id = $1
+    AND status IN ('Active', 'CheckedIn')
 RETURNING *;
 -- name: GetTicketsByBookingIDAndType :many
 SELECT ticket_id,
+    ticket_code,
     seat_id,
     flight_class,
     price,
