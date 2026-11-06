@@ -110,7 +110,9 @@ Cần một **gateway WebSocket ⇄ TCP** ở giữa. Ba phương án:
 | **B** | **Core server Go dùng raw TCP + client C** *(khuyến nghị)* | React ⇄ WS ⇄ Gateway (Go) ⇄ TCP ⇄ **Go core server** (`net.Listen`, tự framing, **không REST**). Thêm **C client** (console) cho giám sát server | Mọi giao tiếp đều qua socket với protocol tự định nghĩa; Go mạnh về concurrency; **tái sử dụng được tầng usecase / repository / sqlc / worker email / Stripe của Qairlines**, chỉ thay tầng Gin bằng tầng socket | Phần C chỉ ở client |
 | C | Bỏ web, làm client desktop C | Client C ⇄ TCP ⇄ server | Không cần gateway | Bỏ toàn bộ FE React (3 điểm giao diện) |
 
-### Khuyến nghị: **Phương án B**
+> **Cập nhật (đã chốt): Phương án D — C làm toàn bộ tầng mạng, Go làm nghiệp vụ.** C (`backend/netcore/`) tự xử lý TCP, framing, CRC, ACK/retry, chống trùng, heartbeat, WebSocket, session/push, log, giám sát. Go giữ domain, usecase, Postgres, mail, Stripe, scheduler và nhận việc từ C qua kênh nội bộ. Không có gateway viết bằng ngôn ngữ khác: phần WebSocket là một module của server C. Chi tiết xem [KIEN-TRUC-MANG-C-GO.md](KIEN-TRUC-MANG-C-GO.md). Mục 3 và sơ đồ mục 4 bên dưới giữ lại làm lịch sử so sánh phương án, **phần "Core TCP Server" và "Gateway" trong đó nay thuộc `netcore` (C)**.
+
+### Khuyến nghị ban đầu: **Phương án B** (đã thay bằng D)
 
 - **Go core server** nói raw TCP với protocol tự định nghĩa (độ dài + JSON).
 - **Gateway** (Go) chỉ chuyển frame WebSocket ⇄ frame TCP. Có thể **tự viết WebSocket handshake + framing (RFC 6455)** trên `net.Conn` để lấy điểm nâng cao.
@@ -122,7 +124,9 @@ Cần một **gateway WebSocket ⇄ TCP** ở giữa. Ba phương án:
 
 ---
 
-## 4. Kiến trúc đề xuất (Phương án B)
+## 4. Kiến trúc đề xuất (Phương án B — bản gốc, nay xem KIEN-TRUC-MANG-C-GO.md)
+
+> Sơ đồ dưới đây vẫn đúng về luồng nghiệp vụ và danh sách message. Điểm khác so với bản đã chốt: "WS ⇄ TCP Gateway" và "Core TCP Server" nay là một chương trình C (`netcore`), còn "Notification Hub", usecase, DB, worker, scheduler nằm ở Go. Protocol thực tế dùng header nhị phân 24 byte có CRC/seq/ack thay cho khung `4 byte length + JSON` ở mục 4.1 (envelope JSON vẫn là payload).
 
 ```mermaid
 flowchart LR
@@ -233,28 +237,34 @@ Toàn bộ FE đang gọi REST (`fetch`/`axios`) rải rác trong từng hook �
 
 ### 5.2. Database (PostgreSQL, sqlc — giống Qairlines)
 
-**Vấn đề cần sửa:**
+**Trạng thái: ✅ đã sửa toàn bộ** bằng migration `000003`–`000004` và file chạy một lần [full_setup.sql](../backend/db/full_setup.sql). Đã kiểm thử trên PostgreSQL 17 (chạy up, down, up và chạy `full_setup.sql` hai lần liên tiếp); cả 99 query trong [backend/db/query/](../backend/db/query/) hợp lệ với schema mới.
 
-| # | Vấn đề | Ảnh hưởng |
-|---|---|---|
-| 1 | Migration `000002` chạy `DROP TABLE Users CASCADE` rồi tạo lại → **mất hết khóa ngoại** từ `Bookings`, `News`, `Customers`, `Admins` và mất dữ liệu mẫu user | Toàn vẹn dữ liệu hỏng; `Customers`/`Admins` thành bảng thừa |
-| 2 | `Bookings.user_email` là FK tới `Users(email)` | Không cho khách vãng lai đặt vé |
-| 3 | Dữ liệu mẫu chỉ có **một hãng** | Không demo được so sánh giữa các hãng |
-| 4 | `Flights` chỉ có `base_price` | Không có giá theo hạng ghế |
-| 5 | `Seats` có `UNIQUE(seat_id, flight_id)` vô nghĩa | Cần `UNIQUE(flight_id, seat_code)` để chống trùng ghế |
-| 6 | Query `UpdateSeat` sửa `seat_code` của dòng ghế thay vì gán vé sang ghế khác | Đổi ghế làm sai sơ đồ ghế |
-| 7 | `Tickets.seat_id NOT NULL` nhưng FE chọn ghế ở bước check-in | Mâu thuẫn luồng |
-| 8 | Không có PNR / mã vé, bảng thanh toán, thông báo, lịch sử trạng thái, lịch sử đổi vé | Thiếu dữ liệu cho các tính năng bắt buộc và thống kê doanh thu |
+| # | Vấn đề (hệ thống cũ) | Trạng thái | Cách xử lý |
+|---|---|---|---|
+| 1 | Migration `000002` chạy `DROP TABLE Users CASCADE` → mất khóa ngoại và dữ liệu | ✅ | Khôi phục trigger và FK của `News`, bỏ `Customers`/`Admins` (đã gộp vào `Users` theo `role`) |
+| 2 | `Bookings.user_email` là FK tới `Users(email)`, không cho khách vãng lai đặt vé | ✅ | `user_id` nullable + `contact_name/email/phone` |
+| 3 | Dữ liệu mẫu chỉ có một hãng | ✅ | Bảng `Airlines`, seed 4 hãng, 147 chuyến, các tuyến HAN↔SGN, HAN↔DAD... |
+| 4 | `Flights` chỉ có `base_price` | ✅ | `FlightFares` giá theo hạng (`economy`/`business`) |
+| 5 | `Seats` có `UNIQUE(seat_id, flight_id)` vô nghĩa | ✅ | `UNIQUE(flight_id, seat_code)` |
+| 6 | Query `UpdateSeat` sửa sai `seat_code` | ✅ | Thay bằng `AssignSeatToTicket`, `HoldSeat`, `BookSeat`, `ReleaseSeat*` |
+| 7 | `Tickets.seat_id NOT NULL` mâu thuẫn luồng chọn ghế | ✅ | `seat_id` nullable; chỉ mục unique một phần cho ghế của vé còn hiệu lực |
+| 8 | Thiếu PNR/mã vé, thanh toán, thông báo, lịch sử trạng thái, lịch sử đổi vé | ✅ | `Bookings.pnr`, `Tickets.ticket_code`, `Payments`, `Notifications`, `FlightStatusHistory`, `TicketChanges` |
 
-**Thay đổi / bổ sung:**
+**Schema mới (tóm tắt):**
 
-- `Bookings`: `user_id` (nullable), `contact_name`, `contact_email`, `contact_phone`, `pnr` (6 ký tự, unique), `hold_expires_at`
-- `Tickets`: `ticket_code` (mã vé điện tử), `seat_id` nullable
-- `FlightFares` (flight_id, class, price, seats_total) — giá theo hạng
-- `Payments` (booking_id, method `card`/`ewallet`, amount, status, provider_ref, created_at) — nguồn thống kê doanh thu
-- `Notifications` (user_id nullable, booking_id, flight_id, type, message, is_read, created_at)
-- `FlightStatusHistory` (flight_id, old/new status, old/new time, reason, changed_by `system`/admin_id, changed_at)
-- `TicketChanges` (old_ticket_id, new_ticket_id, fee, fare_difference)
+- `Airlines` (code, name, logo_url); `Flights.airline_id`
+- `FlightFares` (flight_id, class, price, seats_total)
+- `Bookings`: `user_id` (nullable), `contact_*`, `pnr` (unique), `total_amount`, `hold_expires_at`; enum `booking_status` có thêm `expired`
+- `Seats`: `status` (`available`/`held`/`booked`), `held_until`, `held_by_booking`
+- `Tickets`: `ticket_code`, `seat_id` nullable; enum `ticket_status` có thêm `Changed`, `CheckedIn`
+- `Payments` (method `card`/`ewallet`, status, provider_ref) — nguồn thống kê doanh thu
+- `Notifications`, `FlightStatusHistory` (`changed_by` NULL = hệ thống tự cập nhật), `TicketChanges`
+
+**Cách dùng:**
+
+- Dựng DB mới kèm dữ liệu mẫu: `psql -U postgres -d <db> -f backend/db/full_setup.sql` (xóa và tạo lại bảng của dự án; chạy độc lập, không dùng chung với thư mục `migrations/` trên cùng một DB). Tài khoản mẫu `admin@qairlines.vn`, `john.doe@example.com`, `alice@example.com`, mật khẩu `123456`; PNR mẫu `AB12CD`, `GU35ST` (khách vãng lai), `PD77XY` (đang giữ chỗ).
+- Nâng cấp DB đang có theo từng bước: `backend/db/migrations/000003`–`000004`.
+- Lưu ý: code Go của Qairlines (sqlc đã sinh) sẽ không biên dịch được với query mới cho đến khi chạy lại `sqlc generate` và sửa các chỗ gọi, vì tên cột và tham số thay đổi.
 
 ---
 
@@ -456,14 +466,14 @@ Mỗi lần chuyển trạng thái, hệ thống đều tự gửi thông báo c
 
 | Yêu cầu | Điểm | Qairlines cũ | Repo này (FE / DB) | Việc cần làm |
 |---|---|---|---|---|
-| Kết nối client–server bằng socket | 2 | ❌ REST | ❌ | Core TCP server, gateway WS⇄TCP, `socket.js` ở FE, C console |
+| Kết nối client–server bằng socket | 2 | ❌ REST | ❌ | `netcore` (C): TCP + WebSocket, `net/socketClient.js` ở FE, client console C |
 | Ghi log message gửi/nhận | 1 | 🟡 log HTTP | ❌ | Logger mọi frame IN/OUT theo conn, mask dữ liệu nhạy cảm |
 | Đăng ký / đăng nhập | 2 | ✅ | ✅ / ✅ | Chuyển sang message socket, session gắn với connection |
 | Tìm kiếm theo tiêu chí | 2 | 🟡 | 🟡 thiếu hạng ghế | Thêm hạng ghế; lọc theo số ghế trống ≥ số khách |
 | So sánh giá & thời gian bay giữa các hãng | 2 | 🟡 | 🟡 / 1 hãng | Dữ liệu nhiều hãng; lọc hãng; sắp xếp giá / thời lượng / giờ đi; bảng so sánh; nhãn "Rẻ nhất / Nhanh nhất" |
 | Đặt vé & thanh toán (thẻ / ví) | 3 | 🟡 bắt buộc login, chỉ thẻ | 🟡 route `/confirm` chưa gắn | Đặt vé cho khách vãng lai; gộp đặt → thanh toán; ví điện tử; giữ chỗ có hạn |
 | Nhận vé điện tử (email / SMS) | 2 | 🟡 email không có mã vé | ❌ thiếu PNR | Sinh PNR + mã vé; email HTML + PDF; SMS (mock) |
-| Quản lý vé: xem, hủy, đổi, in | 3 | 🟡 thiếu đổi, hủy không kiểm hạn | 🟡 | Đổi vé; chính sách hạn hủy; tra cứu bằng PNR |
+| Quản lý vé: xem, hủy, đổi, in | 3 | 🟡 thiếu đổi, hủy không kiểm hạn | 🟡 | Đổi vé; tra cứu bằng PNR. **Chính sách hạn hủy/đổi, phí theo hãng: tạm hoãn** (xem mục 10) |
 | Thông báo: đổi lịch, hủy, trễ | 3 | ❌ | ❌ / 🟡 enum | Scheduler + báo sự cố + Hub push + email; chuông thông báo |
 | Giao diện | 3 | ✅ | ✅ | Bổ sung các màn còn thiếu; port trang admin |
 | Tính năng nâng cao | 5 | | | Mục 8 |
@@ -494,12 +504,14 @@ Mỗi lần chuyển trạng thái, hệ thống đều tự gửi thông báo c
 
 ## 9. Lộ trình
 
+> Thứ tự chi tiết cho phần C (15 bước, bài tập và cách kiểm tra) nằm ở [KIEN-TRUC-MANG-C-GO.md](KIEN-TRUC-MANG-C-GO.md), mục 7 và 10. Bảng dưới là lộ trình nghiệp vụ; giai đoạn 2–3 nay do `netcore` (C) và Go chia nhau.
+
 | Giai đoạn | Nội dung | Kiểm chứng |
 |---|---|---|
-| **0. Chốt thiết kế** | Hỏi giảng viên (mục 10); chốt protocol thành `docs/PROTOCOL.md` | Tài liệu protocol |
-| **1. Sửa DB** | Migration `000003`: khôi phục FK, gộp `Customers`/`Admins`, `Bookings` hỗ trợ khách vãng lai + PNR, bảng mới ở mục 5.2; dữ liệu nhiều hãng | `migrate up/down` chạy sạch |
-| **2. Khung socket** | Core TCP server (accept, goroutine/conn, framing, dispatch, logger) + gateway + `socket.js`; `HELLO`, `PING` | Web gửi PING nhận PONG; log đủ hai chiều |
-| **3. Tái dùng Qairlines** | Copy tầng usecase / repository / sqlc / worker email / Stripe; viết handler socket thay handler Gin | Các usecase cũ chạy qua socket |
+| **0. Chốt thiết kế** | ✅ Đã chốt phương án D. Còn lại: viết `docs/PROTOCOL.md` | Tài liệu protocol |
+| **1. Sửa DB** | ✅ Xong (mục 5.2): migration `000003`–`000004`, `full_setup.sql`, 99 query | Đã chạy up/down/up sạch |
+| **2. Khung socket** | `netcore` (C): TCP, framing, CRC, heartbeat, retry, dedupe, log, WebSocket, `net/socketClient.js`; `HELLO`, `PING` | Web gửi PING nhận PONG; log đủ hai chiều |
+| **3. Tái dùng Qairlines** | Giữ tầng usecase / repository / worker email / Stripe ở Go; chạy lại `sqlc generate` với query mới; thêm `infra/socket` thay handler Gin; nối `bridge` của C với Go | Các usecase chạy qua socket |
 | **4. Auth** | `AUTH_*`; login/signup FE qua socket | |
 | **5. Tìm kiếm & so sánh** | `FLIGHT_SEARCH`, `FLIGHT_COMPARE`; FE thêm hạng ghế, lọc hãng, sắp xếp, bảng so sánh | |
 | **6. Đặt vé & thanh toán** | Gắn route `/confirm`; form liên hệ cho khách vãng lai; `SEAT_HOLD`, `BOOKING_CREATE`, `PAYMENT_*`; transaction chống trùng ghế | Đặt vé khứ hồi nhiều khách, cả có và không đăng nhập |
@@ -513,8 +525,8 @@ Mỗi lần chuyển trạng thái, hệ thống đều tự gửi thông báo c
 
 ## 10. Câu hỏi còn mở
 
-1. Giảng viên có **bắt buộc server viết bằng C** không? (quyết định phương án A hay B)
-2. Chặng browser → gateway dùng WebSocket có được chấp nhận là "socket" không, hay client cũng phải là TCP thuần?
+1. ~~Giảng viên có bắt buộc server viết bằng C không?~~ **Đã giải quyết:** thầy nói full C rất khó và đặt nặng phần lập trình mạng, nên chốt phương án D (C làm tầng mạng, Go làm nghiệp vụ).
+2. ~~Chặng browser → server dùng WebSocket có được chấp nhận không?~~ **Đã giải quyết bằng thiết kế:** WebSocket do C tự cài, giao thức riêng nằm bên trong; thêm client console C chạy TCP thuần làm bằng chứng.
 3. Thanh toán: Stripe test mode thật hay mock? Ví điện tử dùng sandbox (MoMo / ZaloPay) hay mock?
 4. Vé điện tử qua email là đủ, hay cần cả SMS? (SMS tốn phí, có thể mock bằng log hoặc Telegram bot)
-5. Chính sách hủy / đổi vé: hạn bao lâu trước giờ bay, phí bao nhiêu?
+5. **Chính sách hủy / đổi vé (hạn trước giờ bay, phí, khác nhau theo hãng): tạm hoãn.** Làm tốt các nghiệp vụ cơ bản trước (tìm kiếm, so sánh, đặt vé, thanh toán, vé điện tử, xem/hủy/đổi vé cơ bản, thông báo); nếu còn thời gian mới bổ sung. Trong lúc chưa làm, hủy/đổi vé dùng quy tắc tối giản: chỉ cho hủy/đổi khi chuyến chưa khởi hành (`CancelTicket` đã có tham số `cutoff`), phí bằng 0. Khi làm sau chỉ cần thêm bảng chính sách theo hãng, không phải sửa kiến trúc.

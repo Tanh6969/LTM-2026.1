@@ -28,6 +28,28 @@ WebSocket ở đây **chỉ là phương tiện chở byte** cho trình duyệt,
 - Bên trong mỗi WebSocket message là **giao thức riêng của bạn** (header, CRC, seq/ack, retry). Mọi quyết định độ tin cậy nằm ở C và client, không nằm ở tầng web.
 - Có thêm **client console bằng C chạy TCP thô** để chứng minh giao thức độc lập với web.
 
+### Quyết định đã chốt
+
+- **C** làm toàn bộ tầng mạng. **Go** giữ domain, usecase, Postgres, mail, Stripe, scheduler.
+- **Không** viết nghiệp vụ và truy vấn DB bằng C (tránh `libpq`, parse JSON, SMTP, Stripe, bcrypt/JWT bằng C). Lý do: những phần đó nặng nhưng không giúp lấy điểm lập trình mạng; thầy cũng nhận xét full C là rất khó.
+- **Không** có `go-helper/` riêng. Go đã có trách nhiệm cụ thể là toàn bộ nghiệp vụ và DB.
+- Thư mục C đặt tên `backend/netcore/` (bản điều chỉnh của `c-server/` ban đầu: bỏ `application/` và `storage/`).
+
+### Nhiều hãng bay (2–3 hãng theo yêu cầu của thầy)
+
+Hãng bay là **dữ liệu, không phải kiến trúc**. Hệ thống đóng vai đại lý bán vé (như Traveloka, Skyscanner): một server, một luồng đặt vé, một luồng thanh toán, bán vé của nhiều hãng. **Không** mỗi hãng một server.
+
+| Phần | Có đổi theo hãng không? |
+|---|---|
+| Đặt vé | Không. Một đơn có thể gồm chuyến đi hãng A và chuyến về hãng B (`departure_flight_id`, `return_flight_id`) |
+| Thanh toán | Không. Khách trả một lần cho cả đơn. Chia tiền theo hãng chỉ là báo cáo (`RevenueByAirline`) |
+| Tìm kiếm và so sánh giá/thời gian | Đây chính là chức năng so sánh các hãng: `SearchFlights` đã trả về hãng, giá, thời lượng |
+| Quy định phí đổi/hủy, hành lý | Khác nhau theo hãng, nên lưu thành **cột hoặc bảng chính sách**, không viết code riêng từng hãng. Cần chốt chính sách trước (xem TONG-QUAN-DU-AN, câu hỏi mở số 5) |
+
+DB đã sẵn sàng: `Airlines`, `Flights.airline_id`, `FlightFares` và seed 4 hãng có trong `backend/db/full_setup.sql`.
+
+**Tính năng nâng cao tùy chọn (làm sau cùng):** "server hãng giả". Server chính gọi song song 2–3 server giả lập của từng hãng qua TCP, có timeout; hãng nào chậm hoặc lỗi thì bỏ qua và vẫn trả kết quả của các hãng còn lại. Phần này thể hiện lập trình mạng khá tốt (gọi song song, timeout, chịu lỗi từng phần) nhưng chỉ làm sau khi hệ thống chính chạy ổn.
+
 ---
 
 ## 2. Kiến trúc
@@ -167,6 +189,21 @@ Nếu muốn một chức năng thể hiện **retransmit thực sự** (stop-an
 - Bản nhẹ hơn: tải file qua TCP theo mảnh có `offset` + CRC mỗi mảnh + tiếp tục từ chỗ dừng.
 - Chỉ làm sau khi phần chính chạy ổn.
 
+### 4.6 Hai bậc độ tin cậy
+
+Bộ cơ chế truyền file (cửa sổ trượt, ACK tích lũy, RTO, fast retransmit, PROBE khi cửa sổ bằng 0, CRC từng mảnh, kiểm tra hash cuối file) của bài HW7 **không** áp dụng cho từng lệnh đặt vé vì quá nặng. Chia hai bậc:
+
+| Bậc | Áp dụng cho | Cơ chế |
+|---|---|---|
+| 1 | Mọi thông điệp nghiệp vụ (`FLIGHT_SEARCH`, `SEAT_HOLD`, `BOOKING_CREATE`, `PAYMENT_*`, ...) | framing, CRC, `req_id`, timeout + gửi lại, chống xử lý trùng, heartbeat, `RESUME` |
+| 2 | Truyền file (tải **vé điện tử PDF**) | tái sử dụng nền HW7: mảnh 4096 byte, cửa sổ trượt, ACK tích lũy, RTO, fast retransmit, PROBE, CRC + hash cuối file |
+
+Cần phân biệt hai loại xác nhận:
+- **ACK** xác nhận frame đã nhận đủ và đúng (tầng truyền).
+- **Phản hồi nghiệp vụ** (ví dụ `BOOKING_CREATE_RES`) cho biết thao tác thành công hay thất bại (tầng ứng dụng).
+
+Bậc 2 là chỗ khoe retransmit thật sự khi bảo vệ, và dùng lại được code đã làm ở HW7.
+
 ---
 
 ## 5. Thiết kế bên trong netcore (C)
@@ -178,26 +215,55 @@ Nếu muốn một chức năng thể hiện **retransmit thực sự** (stop-an
 
 ### 5.2 Các module (gợi ý)
 
+Cấu trúc thư mục chốt (so với bản `c-server/` ban đầu: **bỏ `application/` và `storage/`**, thêm `session/` và `bridge/`; **bỏ `go-helper/`**):
+
 ```
-netcore/
-├── include/         header chung (frame.h, conn.h, ...)
-├── src/
-│   ├── main.c       khởi tạo, vòng lặp epoll
-│   ├── conn.c       vòng đời kết nối, buffer nhận/ghi
-│   ├── frame.c      đóng/mở header, kiểm tra magic/length/CRC
-│   ├── crc32.c
-│   ├── reliab.c     seq/ack, bảng chờ, retry, dedupe cache
-│   ├── session.c    session table, RESUME, hàng đợi push
-│   ├── timer.c      heartbeat, timeout
-│   ├── ws.c         bắt tay + frame WebSocket (RFC 6455)
-│   ├── sha1.c, base64.c   (tự viết hoặc dùng OpenSSL)
-│   ├── bridge.c     kết nối nội bộ tới Go, định tuyến phản hồi và push
-│   ├── log.c        log từng gói, che dữ liệu nhạy cảm
-│   └── admin.c      lệnh MON_*
-├── client/          client console TCP thô (cũng là bản tham chiếu của giao thức)
-├── tools/           lossy proxy, load generator
-└── tests/           test đơn vị cho frame/crc/ws và test tích hợp
+backend/
+├── netcore/                    # C: toàn bộ tầng mạng
+│   ├── include/                # header dùng chung: frame, connection, protocol
+│   ├── src/
+│   │   ├── main.c              # khởi động, vòng lặp epoll
+│   │   ├── transport/          # TCP, accept, gửi/nhận, quản lý kết nối, hàng đợi ghi
+│   │   ├── protocol/           # frame, encode/decode, CRC32, loại thông điệp
+│   │   ├── reliability/        # bậc 1: req_id, retry, dedupe, heartbeat
+│   │   │                       # bậc 2: cửa sổ trượt, ACK, RTO, fast retransmit, PROBE (truyền file)
+│   │   ├── websocket/          # bắt tay + frame RFC 6455, sha1, base64
+│   │   ├── session/            # bảng phiên, RESUME, hàng đợi push chưa ack
+│   │   ├── bridge/             # kết nối nội bộ tới Go, định tuyến phản hồi và push
+│   │   ├── logging/            # log từng gói, CRC, retransmit, lỗi, thống kê, che dữ liệu nhạy cảm
+│   │   └── config/             # cổng, giới hạn buffer, tham số chạy
+│   ├── client/                 # client console TCP thô (bản tham chiếu của giao thức)
+│   ├── tools/                  # lossy proxy (loss/corrupt/ACK-loss), load generator
+│   ├── tests/                  # test frame, CRC, cửa sổ, RTO, dedupe
+│   └── Makefile
+├── internal/                   # Go (giữ nguyên): domain, usecase, postgresql, mail, stripe, worker
+│   └── infra/socket/           # listener nội bộ nhận từ C (thay infra/api của Gin)
+└── db/                         # schema, migration, query (đã có)
+
+frontend/src/
+├── net/
+│   ├── socketClient.js         # kết nối WebSocket, encode/decode frame, retry/timeout/RESUME
+│   └── protocol.js             # các type và cấu trúc message dùng ở browser
+└── services/                   # service nghiệp vụ gọi qua socketClient (thay các lời gọi REST)
 ```
+
+`pages/`, `components/`, `hooks/` chỉ lo giao diện và trạng thái UI, không tự triển khai cơ chế mạng. `services/customerService.js` và các hook liên quan hiện còn gọi REST cũ, cần đổi sang gửi message qua `socketClient`.
+
+#### Ước lượng quy mô (không có file nghìn dòng)
+
+| Module | Dòng ước tính |
+|---|---:|
+| `protocol` (frame + crc32) | 200–300 |
+| `transport` (conn + epoll) | 400–500 |
+| `reliability` bậc 1 (req_id/retry/dedupe) | 400–600 |
+| `reliability` bậc 2 (truyền file, tái sử dụng HW7) | 400–600 |
+| `websocket` (+ sha1, base64) | 400–500 |
+| `session` + push | 200–300 |
+| `logging`, timer, admin | 300–400 |
+| `bridge` | 250–350 |
+| `main`, `config` | 100–200 |
+
+Tổng khoảng **3.000–3.800 dòng trong 12–15 file, mỗi file 100–500 dòng**. Đủ nhỏ để tự gõ tay và hiểu từng dòng. Mẹo học: viết xong một module, đóng file và chép lại từ trí nhớ để kiểm tra có hiểu thật không.
 
 ### 5.3 Cầu nối với Go (`bridge.c` ↔ `infra/socket`)
 - Dùng **cùng định dạng frame** cho kết nối nội bộ (Unix domain socket trong WSL/Linux, hoặc TCP localhost). Tận dụng lại `frame.c`.
@@ -251,7 +317,8 @@ Số liệu: số kết nối, byte vào/ra, gói vào/ra, **số lần gửi l�
 | 11 | Session + RESUME | hàng đợi push chưa ack, vòng đệm | ngắt mạng, kết nối lại, nhận đủ thông báo |
 | 12 | **WebSocket** | HTTP Upgrade, `Sec-WebSocket-Accept` (SHA-1 + Base64), frame có mask, ping/pong/close, phân mảnh | trình duyệt `new WebSocket("ws://...")` bắt tay thành công, echo chạy |
 | 13 | `NetClient` JS | `DataView`, mirror quy tắc | FE đặt vé qua WS; kịch bản mục 4.4 chạy được trên trình duyệt |
-| 14 | Nâng cao | TLS (OpenSSL), rate limit, UDP ARQ, tải file theo mảnh | chọn 1–2 mục |
+| 14 | **Truyền file bậc 2** (tải vé điện tử PDF) | tái sử dụng HW7: mảnh 4096 byte, cửa sổ trượt, ACK tích lũy, RTO, fast retransmit, PROBE, hash cuối file | tải file qua proxy gây lỗi: file nhận về đúng hash |
+| 15 | Nâng cao (chọn 1–2) | TLS (OpenSSL), rate limit, UDP ARQ, "server hãng giả" gọi song song | tùy mục chọn |
 
 Thứ tự gợi ý: 1–5 là nền (khoảng 1 tuần), 6–9 là phần thầy chấm nặng nhất, 10–13 để nối vào hệ thống. Bước 12 có thể làm sớm hơn nếu muốn FE chạy sớm.
 
@@ -296,8 +363,12 @@ Sau mỗi bước nên chạy `valgrind` hoặc ASan để bắt rò bộ nhớ 
 
 ## 10. Việc cần làm trong repo (khi bắt đầu)
 
-- [ ] Tạo thư mục `netcore/` theo mục 5.2 (Makefile, `-Wall -Wextra -fsanitize=address` ở chế độ debug).
-- [ ] Viết `docs/PROTOCOL.md` chốt header, type, flags, mã lỗi (nguồn chân lý cho cả C, Go, JS).
-- [ ] Go: `backend/internal/infra/socket` (listener nội bộ), thay `infra/api` (Gin).
-- [ ] FE: thay hook gọi REST bằng `NetClient`.
-- [ ] Cập nhật [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md): đổi Option D thành hướng chính, đánh dấu các lỗi DB đã sửa.
+Thứ tự làm đã chốt:
+
+- [ ] 1. Viết `docs/PROTOCOL.md` chốt header, type, flags, mã lỗi, phân biệt ACK truyền tin với phản hồi nghiệp vụ (nguồn chân lý cho cả C, Go, JS).
+- [ ] 2. Tạo `backend/netcore/` theo mục 5.2 (Makefile, `-Wall -Wextra -fsanitize=address` ở chế độ debug). Viết TCP + framing + CRC, chạy với client console C (bước 1–4).
+- [ ] 3. Thêm heartbeat, retry, dedupe, lossy proxy, log, Monitor (bước 5–9), rồi truyền file bậc 2 (bước 14).
+- [ ] 4. Go: `backend/internal/infra/socket` (listener nội bộ), thay `infra/api`; nối `bridge/` ở C với Go (bước 10–11).
+- [ ] 5. FE: thêm `net/socketClient.js`, `net/protocol.js`; đổi `services/` và hook gọi REST sang gửi message qua socket (bước 12–13).
+- [ ] 6. Chốt chính sách hủy/đổi theo hãng (bảng chính sách), cập nhật [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md): đổi Option D thành hướng chính, đánh dấu các lỗi DB đã sửa.
+- [ ] 7. (Tùy chọn, làm sau cùng) "server hãng giả" gọi song song, TLS.
