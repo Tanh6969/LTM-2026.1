@@ -2,9 +2,6 @@ package news
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"time"
 
 	"ltm-flight/internal/domain/adapters"
 	"ltm-flight/internal/infra/api/dto"
@@ -15,32 +12,24 @@ type IGetNewsUseCase interface {
 }
 
 type GetNewsUseCase struct {
-	newsRepository  adapters.INewsRepository
-	cacheRepository adapters.ICacheRepository
+	newsRepository adapters.INewsRepository
 }
 
-func NewGetNewsUseCase(newsRepository adapters.INewsRepository, cacheRepository adapters.ICacheRepository) IGetNewsUseCase {
+func NewGetNewsUseCase(newsRepository adapters.INewsRepository) IGetNewsUseCase {
 	return &GetNewsUseCase{
-		newsRepository:  newsRepository,
-		cacheRepository: cacheRepository,
+		newsRepository: newsRepository,
 	}
 }
 
 func (u *GetNewsUseCase) Execute(ctx context.Context, newsID int64) (*dto.GetNewsResponse, error) {
-	// Create dynamic key
-	cacheKey := fmt.Sprintf("getNews:%d", newsID)
-	// Get data from cache
-	var cachedData dto.GetNewsResponse
-	if err := u.cacheRepository.Get(cacheKey, &cachedData); err == nil {
-		return &cachedData, nil
-	}
-
 	// Lấy bài viết từ repository
 	news, err := u.newsRepository.GetNews(ctx, newsID)
 	if err != nil {
 		return nil, err
 	}
-	newsDTO := &dto.GetNewsResponse{
+
+	// Map entity sang DTO
+	return &dto.GetNewsResponse{
 		ID:          news.ID,
 		Title:       news.Title,
 		Description: news.Description,
@@ -49,20 +38,5 @@ func (u *GetNewsUseCase) Execute(ctx context.Context, newsID int64) (*dto.GetNew
 		Image:       news.Image,
 		CreatedAt:   news.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:   news.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-	}
-
-	// Serialize DTO to JSON
-	jsonData, err := json.Marshal(newsDTO)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create cache data
-	err = u.cacheRepository.Set(cacheKey, jsonData, 5*time.Minute)
-	if err != nil {
-		return nil, err
-	}
-
-	// Map entity sang DTO
-	return newsDTO, nil
+	}, nil
 }

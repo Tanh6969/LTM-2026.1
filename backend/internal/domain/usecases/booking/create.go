@@ -3,33 +3,30 @@ package booking
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
-	"time"
 
-	"github.com/hibiken/asynq"
 	"ltm-flight/internal/domain/adapters"
 	"ltm-flight/internal/domain/entities"
 	"ltm-flight/internal/infra/api/dto"
 	"ltm-flight/internal/infra/api/mappers"
-	"ltm-flight/internal/infra/worker"
 )
 
 type ICreateBookingUseCase interface {
 	Execute(ctx context.Context, booking dto.CreateBookingRequest, email string) (dto.CreateBookingResponse, error)
 }
 
+// CreateBookingUseCase là bản của hệ thống cũ (1 hãng, bắt buộc có tài khoản) và sẽ được viết lại ở giai đoạn 6
+// theo schema mới (đặt vé cho khách vãng lai, PNR, giữ ghế). Việc gửi vé điện tử qua email không còn nằm ở Go:
+// netcore (C) gửi email qua SMTP ở giai đoạn 7.
 type CreateBookingUseCase struct {
 	bookingRepository adapters.IBookingRepository
 	flightRepository  adapters.IFlightRepository
-	taskDistributor   worker.TaskDistributor
 }
 
-func NewCreateBookingUseCase(bookingRepository adapters.IBookingRepository, flightRepository adapters.IFlightRepository, taskDistributor worker.TaskDistributor) ICreateBookingUseCase {
+func NewCreateBookingUseCase(bookingRepository adapters.IBookingRepository, flightRepository adapters.IFlightRepository) ICreateBookingUseCase {
 	return &CreateBookingUseCase{
 		bookingRepository: bookingRepository,
 		flightRepository:  flightRepository,
-		taskDistributor:   taskDistributor,
 	}
 }
 
@@ -62,6 +59,7 @@ func (u *CreateBookingUseCase) Execute(ctx context.Context, booking dto.CreateBo
 			return dto.CreateBookingResponse{}, err
 		}
 	}
+
 	// Tạo booking trong repository
 	params := mappers.ToCreateBookingParams(booking, *departureFlight, returnFlight, email)
 	arg := entities.CreateBookingParams{
@@ -73,36 +71,8 @@ func (u *CreateBookingUseCase) Execute(ctx context.Context, booking dto.CreateBo
 		TripType:                params.TripType,
 		DepartureTicketDataList: params.DepartureTicketDataList,
 		ReturnTicketDataList:    params.ReturnTicketDataList,
-		AfterCreate: func(booking entities.Booking) error {
-			taskPayload := &worker.PayloadSendVerifyEmail{
-				To:      booking.UserEmail,
-				Subject: "Xác nhận ghế máy bay",
-				Body: fmt.Sprintf(
-					`<html>
-						<body>
-							<h2>Xin chào,</h2>
-							<p>Chúng tôi xin thông báo rằng ghế của bạn đã được <b>cập nhật thành công</b> cho chuyến bay.</p>
-							<p><strong>Mã chuyến bay:</strong> %d</p>
-							<p>Vui lòng kiểm tra lại thông tin trong ứng dụng để đảm bảo mọi thứ chính xác.</p>
-							<p>Chúc bạn có một chuyến bay an toàn và thoải mái!</p>
-							<br>
-							<p>Trân trọng,<br>
-							<b>Đội ngũ Qairlines</b></p>
-						</body>
-						</html>`,
-					booking.BookingID,
-				),
-			}
-			opts := []asynq.Option{
-				asynq.MaxRetry(10),
-				asynq.ProcessIn(10 * time.Second),
-				asynq.Queue(worker.QueueCritical),
-			}
-			return u.taskDistributor.DistributeTaskSendVerifyEmail(ctx, taskPayload, opts...)
-		},
 	}
 	createdBooking, departureTickets, returnTickets, err := u.bookingRepository.CreateBookingTx(ctx, arg)
-
 	if err != nil {
 		return dto.CreateBookingResponse{}, err
 	}

@@ -374,3 +374,36 @@ Thứ tự làm đã chốt:
 - [ ] 5. FE: thêm `net/socketClient.js`, `net/protocol.js`; đổi `services/` và hook gọi REST sang gửi message qua socket (bước 12–13).
 - [ ] 6. Chốt chính sách hủy/đổi theo hãng (bảng chính sách), cập nhật [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md): đổi Option D thành hướng chính, đánh dấu các lỗi DB đã sửa.
 - [ ] 7. (Tùy chọn, làm sau cùng) "server hãng giả" gọi song song, TLS.
+
+---
+
+## 11. Thanh toán và vé điện tử (đã bỏ Redis, Stripe và gửi mail khỏi Go)
+
+Go không còn Redis (cache, hàng đợi email), Stripe SDK và code gửi mail. Lý do: những phần này không phục vụ trọng tâm môn học, hoặc (gửi mail) là phần mạng nên chuyển sang C.
+
+### Thanh toán: có cần không?
+**Có.** Đề bài chấm "đặt vé và thanh toán online bằng thẻ/ví" (3 điểm). Nhưng không cần cổng thật như Stripe. Làm **cổng thanh toán giả lập** trong Go (giai đoạn 6):
+- Nhận thông tin thẻ hoặc ví, kiểm tra theo quy tắc đơn giản (Luhn cho số thẻ, ví có đủ số dư), trả thành công hoặc thất bại, ghi một dòng vào bảng `Payments`.
+- Có thể mô phỏng thất bại ngẫu nhiên hoặc thẻ test cố định (ví dụ `4242...` thành công, `4000...0002` bị từ chối) để demo luồng lỗi.
+- Bảng `Payments` đã có (`method`, `status`, `provider_ref`), nên sau này muốn đổi sang cổng thật chỉ cần thay phần gọi cổng.
+
+### Vé điện tử qua email: C gửi bằng SMTP
+SMTP là giao thức văn bản chạy trên TCP (`HELO`, `MAIL FROM`, `RCPT TO`, `DATA`...), rất hợp với đề mạng: tự mở socket, gửi lệnh, đọc mã trả lời 2xx/4xx/5xx, xử lý lỗi và gửi lại.
+
+**Chia việc:**
+
+| Bước | Ai làm |
+|---|---|
+| Sinh PNR, mã vé (`pnr`, `ticket_code`) | Go + Postgres (đã có trong DB) |
+| Dựng nội dung email (HTML, chi tiết chuyến bay) | Go (có đủ dữ liệu, dùng template) |
+| Gửi email qua SMTP, xử lý lỗi, thử lại | **C** (module `smtp` trong `netcore`) |
+| Ghi kết quả gửi (`Notifications.sent_email`) | Go, khi C báo kết quả |
+| PDF vé / boarding pass | Frontend (đã có sẵn in/PDF ở trang check-in) |
+
+**Luồng:** thanh toán thành công → Go gửi cho C một yêu cầu `MAIL_SEND {to, subject, html}` → C mở kết nối SMTP, gửi, trả `MAIL_RESULT {ok, lỗi}` → Go cập nhật `sent_email`.
+
+**Cần bổ sung ở bridge:** hiện bridge chỉ có Go trả lời C. Cần thêm chiều **Go chủ động gửi yêu cầu cho C** (thêm kind, ví dụ `REQUEST` theo chiều Go → C kèm `req_id` do Go sinh, và C trả `RESPONSE`). Phần này làm ở giai đoạn 7 và ghi vào [BRIDGE-PROTOCOL.md](BRIDGE-PROTOCOL.md).
+
+**Về TLS:** Gmail yêu cầu STARTTLS hoặc TLS (cổng 587/465) và mật khẩu ứng dụng, nên cần OpenSSL trong C. Hai cách để tách độ khó:
+1. Làm trước với **máy chủ SMTP cục bộ không TLS** (ví dụ MailHog hoặc `python -m smtpd`/`aiosmtpd` cổng 1025) để hoàn thiện SMTP thuần qua socket.
+2. Sau đó thêm STARTTLS bằng OpenSSL để gửi thật qua Gmail (điểm cộng, tùy chọn).
