@@ -1,7 +1,7 @@
 # Hệ thống Đặt vé Máy bay qua Socket TCP — Tổng quan & Kế hoạch
 
 > Tài liệu tổng hợp: hiện trạng (FE + DB của repo này), đối chiếu với hệ thống cũ **Qairlines** (môn Phát triển ứng dụng web), kiến trúc socket đề xuất, sơ đồ use case các chức năng chính (bỏ qua CRUD) và lộ trình.
-> Cập nhật: 27/10/2026
+> Cập nhật: 10/11/2026
 
 ---
 
@@ -462,64 +462,161 @@ Mỗi lần chuyển trạng thái, hệ thống đều tự gửi thông báo c
 
 ---
 
-## 7. Đối chiếu yêu cầu đề bài
+## 7. Chức năng chấm điểm và hiện trạng
 
-| Yêu cầu | Điểm | Qairlines cũ | Repo này (FE / DB) | Việc cần làm |
-|---|---|---|---|---|
-| Kết nối client–server bằng socket | 2 | ❌ REST | ❌ | `netcore` (C): TCP + WebSocket, `net/socketClient.js` ở FE, client console C |
-| Ghi log message gửi/nhận | 1 | 🟡 log HTTP | ❌ | Logger mọi frame IN/OUT theo conn, mask dữ liệu nhạy cảm |
-| Đăng ký / đăng nhập | 2 | ✅ | ✅ / ✅ | Chuyển sang message socket, session gắn với connection |
-| Tìm kiếm theo tiêu chí | 2 | 🟡 | 🟡 thiếu hạng ghế | Thêm hạng ghế; lọc theo số ghế trống ≥ số khách |
-| So sánh giá & thời gian bay giữa các hãng | 2 | 🟡 | 🟡 / 1 hãng | Dữ liệu nhiều hãng; lọc hãng; sắp xếp giá / thời lượng / giờ đi; bảng so sánh; nhãn "Rẻ nhất / Nhanh nhất" |
-| Đặt vé & thanh toán (thẻ / ví) | 3 | 🟡 bắt buộc login, chỉ thẻ | 🟡 route `/confirm` chưa gắn | Đặt vé cho khách vãng lai; gộp đặt → thanh toán; ví điện tử; giữ chỗ có hạn |
-| Nhận vé điện tử (email / SMS) | 2 | 🟡 email không có mã vé | ❌ thiếu PNR | Sinh PNR + mã vé; email HTML + PDF; SMS (mock) |
-| Quản lý vé: xem, hủy, đổi, in | 3 | 🟡 thiếu đổi, hủy không kiểm hạn | 🟡 | Đổi vé; tra cứu bằng PNR. **Chính sách hạn hủy/đổi, phí theo hãng: tạm hoãn** (xem mục 10) |
-| Thông báo: đổi lịch, hủy, trễ | 3 | ❌ | ❌ / 🟡 enum | Scheduler + báo sự cố + Hub push + email; chuông thông báo |
-| Giao diện | 3 | ✅ | ✅ | Bổ sung các màn còn thiếu; port trang admin |
-| Tính năng nâng cao | 5 | | | Mục 8 |
+Bố cục theo từng chức năng của đề bài. Mỗi chức năng ghi rõ phần **giao vận (C)**, **nghiệp vụ (Go + DB)** và **giao diện (FE)**, kèm trạng thái. Thứ tự làm xem mục 9.
 
-✅ có · 🟡 có một phần · ❌ chưa có
+✅ xong · 🟡 có một phần · ⬜ chưa làm
+
+### 7.0. Tổng hợp
+
+| # | Chức năng | Điểm đề bài | Giao vận (C) | Nghiệp vụ (Go + DB) | Giao diện (FE) | Giai đoạn |
+|---:|---|---|---|---|---|---|
+| 1 | Kết nối client–server bằng socket | 2 | ⬜ | ✅ kênh nội bộ | ⬜ | 1, 2 |
+| 2 | Đăng nhập | 2 (cùng đăng ký) | ⬜ chuyển tiếp | ✅ | 🟡 | 2 |
+| 3 | Đăng ký | | ⬜ chuyển tiếp | ✅ | 🟡 | 2 |
+| 4 | Tìm kiếm chuyến bay | 2 | ⬜ chuyển tiếp | 🟡 | 🟡 | 3 |
+| 5 | Lọc theo điểm đi/đến, ngày, số hành khách, hạng ghế | | ⬜ chuyển tiếp | 🟡 SQL đã có | ⬜ | 3 |
+| 6 | So sánh giá và thời gian bay giữa các hãng | 2 | ⬜ chuyển tiếp | 🟡 DB 4 hãng | ⬜ | 3 |
+| 7 | Admin: quản lý chuyến bay, vé, khách hàng | nâng cao (5) | ⬜ chuyển tiếp | 🟡 | ⬜ | 9 |
+| 8 | Admin: thống kê doanh thu từ dữ liệu thật | nâng cao | ⬜ chuyển tiếp | 🟡 SQL đã có | ⬜ | 9 |
+| 9 | Admin: giám sát server (web admin + C Server Console) | nâng cao | ⬜ **chủ yếu ở C** | 🟡 | ⬜ | 9 (số liệu từ 1) |
+| 10 | Ghi log message gửi/nhận | 1 | ⬜ **log chính ở C** | ✅ log bridge | — | 1 |
+| 11 | Chọn ghế | (thuộc đặt vé) | ⬜ broadcast đáng tin | 🟡 SQL đã có | 🟡 | 4 |
+| 12 | Đặt vé và thanh toán mô phỏng | 3 | ⬜ chống đặt trùng | ⬜ viết lại | 🟡 | 5 |
+| 13 | Sinh mã vé điện tử và gửi qua mail | 2 | ⬜ **SMTP ở C** | 🟡 mã vé đã có | ⬜ | 6 |
+| 14 | Quản lý vé: xem chi tiết, hủy, đổi, in (hủy/đổi làm sau nếu kịp) | 3 | ⬜ truyền file vé | 🟡 SQL đã có | 🟡 | 8 |
+| 15 | Nhận thông báo: đổi lịch, hủy, trễ chuyến | 3 | ⬜ **push đáng tin ở C** | 🟡 | ⬜ | 7 |
+| — | Giao diện (chung) | 3 | | | 🟡 | xuyên suốt |
+
+Phần in đậm là chỗ **giao vận thể hiện rõ nhất**; các chức năng còn lại chủ yếu là nghiệp vụ nên chỉ cần vừa đủ chạy được xuyên suốt qua socket.
+
+### 7.1. Kết nối client–server bằng socket (2 điểm)
+- **Giao vận (C) ⬜:** server nhận nhiều client (`epoll`), tách gói (framing), header + CRC32, heartbeat, gửi lại + chống xử lý trùng bằng `req_id`, WebSocket cho trình duyệt; client console C chạy TCP thuần. Chi tiết: [KIEN-TRUC-MANG-C-GO.md](KIEN-TRUC-MANG-C-GO.md) mục 3–5.
+- **Nghiệp vụ (Go) ✅:** kênh nội bộ `infra/bridge`, message `SYS_HEALTH`, đã kiểm thử đầu cuối ([BRIDGE-PROTOCOL.md](BRIDGE-PROTOCOL.md)).
+- **FE ⬜:** `src/net/socketClient.js` (WebSocket, mã hoá/giải mã khung, timeout, gửi lại), thay các lời gọi REST.
+- **Chứng minh khi bảo vệ:** 6 kịch bản lỗi (cắt gói, mất phản hồi, gói hỏng, chết im lặng, nối lại, tải nhiều client) — KIEN-TRUC mục 4.4.
+
+### 7.2. Đăng nhập · 7.3. Đăng ký (2 điểm)
+- **Message:** `AUTH_LOGIN`, `AUTH_TOKEN`, `AUTH_LOGOUT`, `AUTH_REGISTER` (đã có).
+- **Go ✅:** bcrypt, token PASETO, kiểm tra email/mật khẩu (6–72 ký tự), trả 409 khi trùng email, 401 khi sai mật khẩu. Danh tính gắn theo `conn_id`.
+- **C ⬜:** chuyển tiếp qua bridge; nối lại phiên (`RESUME`) để không phải đăng nhập lại khi rớt mạng ngắn.
+- **FE 🟡:** trang `login`, `signup` đã có nhưng đang gọi REST.
+
+### 7.4. Tìm kiếm chuyến bay (2 điểm)
+- **Message:** `FLIGHT_SEARCH`, `FLIGHT_GET`, `FLIGHT_LIST` (đã có).
+- **Go 🟡:** đang tìm theo điểm đi, điểm đến, ngày; cố định hạng phổ thông, 1 hành khách, mọi hãng.
+- **FE 🟡:** form tìm kiếm và danh sách chuyến (lọc giá/khung giờ) đã có.
+
+### 7.5. Lọc theo điểm đi, điểm đến, ngày, số hành khách, hạng ghế
+- **SQL ✅:** `SearchFlights` đã nhận `class`, `passengers`, `airline_id`, `sort_by` và trừ số ghế đã bán.
+- **Còn lại 🟡:** handler/usecase/repository chưa truyền các tham số này xuống (hiện đặt cố định); FE thiếu chọn hạng ghế.
+
+### 7.6. So sánh giá và thời gian bay giữa các hãng (2 điểm)
+- **DB ✅:** 4 hãng, giá theo hạng (`FlightFares`); query trả giá, thời lượng và số ghế còn của mọi hãng.
+- **Còn lại 🟡:** message `FLIGHT_COMPARE` (nhóm theo hãng, nhãn "Rẻ nhất / Nhanh nhất"), sắp xếp theo giá/thời lượng/giờ đi, lọc theo hãng; FE ⬜ bảng so sánh.
+
+### 7.7. Admin: quản lý chuyến bay, vé, khách hàng (nâng cao)
+- **Message dự kiến:** `ADMIN_FLIGHT_LIST/CREATE/UPDATE/DELETE`, `ADMIN_TICKET_LIST`, `ADMIN_CUSTOMER_LIST/UPDATE/DELETE`.
+- **Go 🟡:** usecase cũ của chuyến bay, khách hàng, admin còn dùng được; repository đã viết lại; chưa có handler. Phần vé phải viết lại theo schema mới. Cơ chế quyền (`AuthAdmin`) đã có.
+- **FE ⬜:** trang admin của Qairlines chưa port (hiện chỉ có dialog).
+- **Lưu ý:** trạng thái chuyến bay tự cập nhật theo giờ; admin chỉ báo sự cố (xem 7.15).
+
+### 7.8. Admin: thống kê doanh thu từ dữ liệu thật (nâng cao)
+- **SQL ✅:** doanh thu theo ngày, theo hãng, tổng hợp (`RevenueByDay`, `RevenueByAirline`, `GetDashboardTotals`).
+- **Còn lại:** handler `ADMIN_STATS_REVENUE`; cần có dữ liệu `Payments` thật từ chức năng 12; FE nối dashboard cũ (đang dùng số cứng).
+
+### 7.9. Admin: giám sát server (web admin + C Server Console) (nâng cao)
+- **C ⬜ (chính):** thu số liệu — kết nối đang mở, byte vào/ra, gói gửi lại, CRC lỗi, heartbeat timeout, độ trễ tới Go; cổng admin nhận lệnh `MON_CONNECTIONS`, `MON_METRICS`, `MON_LOG_TAIL`, `MON_KICK`, `MON_BROADCAST`.
+- **C Server Console ⬜:** chương trình console C (bảng tự làm mới, xem log thời gian thực, ngắt kết nối, phát thông báo hệ thống).
+- **Web admin ⬜:** một trang hiển thị cùng số liệu qua `MON_*`.
+- **Go:** `Server.Stats()` của bridge đã có.
+- Đây là chức năng nâng cao thể hiện giao vận nhiều nhất, nên làm trước hai chức năng admin còn lại.
+
+### 7.10. Ghi log message gửi/nhận (1 điểm)
+- **C ⬜ (log chính):** mỗi gói vào/ra giữa client và netcore một dòng: thời điểm, `conn`, địa chỉ, hướng, loại, `seq`, kích thước, trạng thái CRC, cờ gửi lại, kết quả chống trùng, độ trễ; che mật khẩu, số thẻ, token. Ghi file xoay vòng, giữ vòng đệm trong RAM cho `MON_LOG_TAIL`.
+- **Go ✅:** log khung ở bridge, đã che dữ liệu nhạy cảm; định dạng ở [BRIDGE-PROTOCOL.md](BRIDGE-PROTOCOL.md) mục 8.
+
+### 7.11. Chọn ghế (thuộc đặt vé)
+- **Message dự kiến:** `SEAT_MAP_GET`, `SEAT_HOLD`, `SEAT_RELEASE`; push `SEAT_MAP_CHANGED`.
+- **DB ✅:** `HoldSeat` nguyên tử (2 người cùng chọn một ghế thì chỉ 1 người được), giữ chỗ có hạn 10 phút, nhả ghế hết hạn, 38 808 ghế mẫu.
+- **Go ⬜:** handler, bộ lập lịch nhả ghế hết hạn.
+- **C ⬜:** broadcast đáng tin (seq/ack) tới mọi client đang xem cùng chuyến.
+- **FE 🟡:** sơ đồ ghế có ở trang check-in (REST); cần nối socket và đổi màu thời gian thực.
+- **Luồng:** chọn ghế nằm trong luồng đặt vé, trước thanh toán; được bỏ qua và chọn sau.
+
+### 7.12. Đặt vé và thanh toán mô phỏng (3 điểm)
+- **Message dự kiến:** `BOOKING_CREATE` (có `contact` cho khách vãng lai), `PAYMENT_PAY`.
+- **DB ✅:** `Bookings` (`pnr`, `user_id` nullable, `hold_expires_at`), `Payments`.
+- **Go ⬜:** usecase đặt vé mới (thay bản cũ), cổng thanh toán giả lập: thẻ (kiểm tra Luhn, thẻ test `4242…` thành công, `4000…0002` bị từ chối) và ví điện tử (đủ số dư); xác nhận đơn và chốt ghế trong một giao dịch.
+- **C ⬜:** chống đặt trùng khi mất phản hồi: gửi lại cùng `req_id` vẫn chỉ tạo một đơn (kịch bản demo số 2).
+- **FE 🟡:** route `/confirm` chưa khai báo; thêm form liên hệ cho khách vãng lai; đưa bước thanh toán vào luồng đặt.
+
+### 7.13. Sinh mã vé điện tử và gửi qua mail (2 điểm)
+- **DB ✅:** PNR 6 ký tự và `ticket_code` đã có.
+- **Go ⬜:** dựng nội dung email (HTML), gửi yêu cầu `MAIL_SEND` cho C, nhận kết quả để ghi `sent_email`.
+- **C ⬜ (chính):** SMTP client qua socket (`HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, đọc mã 2xx/4xx/5xx, thử lại). Làm trước với SMTP cục bộ cổng 1025, sau đó thêm STARTTLS/OpenSSL để gửi thật qua Gmail.
+- **Bridge ⬜:** cần thêm chiều Go → C (xem KIEN-TRUC mục 11).
+- **FE:** in/PDF vé ở trình duyệt.
+
+### 7.14. Quản lý vé đã đặt: xem chi tiết, hủy, đổi, in (3 điểm)
+- **Message dự kiến:** `BOOKING_LOOKUP` (PNR + email, không cần đăng nhập), `BOOKING_HISTORY`, `TICKET_GET`, `TICKET_RESEND`, `TICKET_CANCEL`, `TICKET_CHANGE`.
+- **DB ✅:** tra cứu theo PNR, lịch sử đặt vé, `CancelTicket` có mốc thời gian, `TicketChanges`.
+- **Go ⬜:** viết lại usecase theo schema mới.
+- **FE 🟡:** xem, hủy, PDF đã có (REST); thiếu đổi vé.
+- **Làm trước:** xem chi tiết, tra cứu bằng PNR, in vé. **Hủy và đổi vé làm sau nếu kịp**, tạm dùng quy tắc tối giản (chỉ khi chưa khởi hành, phí 0). Chính sách theo hãng để sau cùng.
+- **C ⬜:** tải vé PDF qua truyền file đáng tin (cửa sổ trượt, RTO, PROBE, kiểm tra hash cuối file, tái dùng HW7).
+
+### 7.15. Nhận thông báo về chuyến bay: đổi lịch, hủy, trễ (3 điểm)
+- **Message dự kiến:** `ADMIN_FLIGHT_DISRUPT`; push `NOTIFY_FLIGHT_DELAYED/CANCELLED/RESCHEDULED/STATUS`; `NOTIFY_LIST`, `NOTIFY_MARK_READ`.
+- **DB ✅:** `Notifications`, `FlightStatusHistory`, `DisruptFlight`, `AdvanceFlightStatuses` (tự chuyển Boarding/Takeoff/Landed), `ListAffectedBookingsByFlight`.
+- **Go 🟡:** `PushToUser` đã có; cần bộ lập lịch chạy mỗi phút, handler admin báo sự cố (tạo thông báo, đẩy, gửi email).
+- **C ⬜ (chính):** đẩy tin đáng tin — `seq`/`ack`, giữ hàng đợi khi client offline, `RESUME` phát lại phần bị lỡ; email thông báo dùng lại SMTP của 7.13.
+- **FE ⬜:** chuông thông báo, toast thời gian thực.
+- **Demo:** admin báo trễ → trình duyệt khách nhận ngay; ngắt mạng khách rồi nối lại vẫn nhận đủ.
+
+### 7.16. Giao diện (3 điểm, chung)
+Đổi toàn bộ lời gọi REST sang `socketClient`. Màn còn thiếu: route `/confirm` và form liên hệ khách vãng lai, bảng so sánh, chuông thông báo, trang giám sát, các trang admin. Các màn còn lại (tìm kiếm, danh sách chuyến, check-in, quản lý đặt chỗ, tài khoản) đã có.
 
 ---
 
-## 8. Tính năng nâng cao (chọn theo sức)
+## 8. Ý tưởng nâng cao bổ sung (chỉ làm khi đã xong mục 7)
 
-Ưu tiên tính năng **thể hiện kiến thức lập trình mạng**:
+Các tính năng nâng cao chính (admin, giám sát, thống kê) đã nằm trong mục 7. Danh sách dưới đây là phần thêm nếu còn thời gian, ưu tiên theo mức thể hiện kiến thức giao vận:
 
 | Ưu tiên | Tính năng | Lý do |
 |---|---|---|
-| ⭐⭐⭐ | **Giám sát server** (web admin + C console): kết nối đang mở, user online, message/giây, log realtime, ngắt kết nối | Hệ thống cũ chưa có; đúng trọng tâm môn học |
-| ⭐⭐⭐ | **Sơ đồ ghế realtime + khóa ghế đồng thời** | Nhiều client cùng xem một chuyến, ghế được giữ đổi màu ngay (broadcast); xử lý 2 người cùng bấm một ghế |
-| ⭐⭐⭐ | **Heartbeat, timeout, tự kết nối lại** | PING/PONG phát hiện kết nối chết; client tự reconnect và subscribe lại |
-| ⭐⭐ | **Tự cài WebSocket (RFC 6455)** ở gateway | Hiểu giao thức tầng ứng dụng trên TCP |
-| ⭐⭐ | **Thống kê doanh thu thật** + biểu đồ (dashboard cũ đã có UI) | Thay số cứng bằng số liệu từ `Payments` |
-| ⭐⭐ | **TLS** trên kết nối TCP (`crypto/tls`) | Bảo vệ thông tin thẻ, mật khẩu |
-| ⭐⭐ | **Check-in online + boarding pass** | UI đã có sẵn |
-| ⭐ | **Chat hỗ trợ realtime** (thay form liên hệ) | Ứng dụng socket hai chiều |
-| ⭐ | **Rate limiting theo connection / IP** | Qairlines có cho HTTP, làm lại cho socket |
-| ⭐ | **Điểm thưởng thành viên** | Cột `loyalty_points` đã có |
-| ⭐ | **Lịch giá rẻ ±3 ngày** | Tăng giá trị phần so sánh |
+| ⭐⭐⭐ | **Truyền file đáng tin kiểu HW7** (vé PDF): cửa sổ trượt, ACK tích lũy, RTO, fast retransmit, PROBE, kiểm tra hash cuối file | Cơ chế giao vận thuần túy, bạn đã làm ở HW7 |
+| ⭐⭐⭐ | **Độ tin cậy trên UDP** (stop-and-wait hoặc cửa sổ trượt) cho một kênh phụ | Thấy mất gói và gửi lại thật sự |
+| ⭐⭐ | **TLS** cho kết nối client (OpenSSL) | Bảo vệ mật khẩu, thông tin thẻ |
+| ⭐⭐ | **Rate limiting theo kết nối / IP** ở netcore | Chống client xấu |
+| ⭐⭐ | **"Server hãng giả"**: server chính gọi song song 2–3 server hãng qua TCP, có timeout, chịu lỗi từng phần | Gọi song song, timeout |
+| ⭐ | Check-in online + boarding pass | UI đã có sẵn |
+| ⭐ | Chat hỗ trợ thời gian thực | Socket hai chiều |
+| ⭐ | Điểm thưởng thành viên | Cột `loyalty_points` đã có |
+| ⭐ | Lịch giá rẻ ±3 ngày | Tăng giá trị phần so sánh |
 
 ---
 
 ## 9. Lộ trình
 
-> Thứ tự chi tiết cho phần C (15 bước, bài tập và cách kiểm tra) nằm ở [KIEN-TRUC-MANG-C-GO.md](KIEN-TRUC-MANG-C-GO.md), mục 7 và 10. Bảng dưới là lộ trình nghiệp vụ; giai đoạn 2–3 nay do `netcore` (C) và Go chia nhau.
+**Nguyên tắc:** giao vận (C) làm trước và làm nhiều nhất; nghiệp vụ chỉ làm vừa đủ để mỗi chức năng demo được xuyên suốt qua socket. Số trong cột "Chức năng" là mục ở phần 7. Chi tiết 15 bước kỹ thuật cho phần C (bài tập, cách kiểm tra) nằm ở [KIEN-TRUC-MANG-C-GO.md](KIEN-TRUC-MANG-C-GO.md) mục 7.
 
-| Giai đoạn | Nội dung | Kiểm chứng |
-|---|---|---|
-| **0. Chốt thiết kế** | ✅ Đã chốt phương án D. Còn lại: viết `docs/PROTOCOL.md` | Tài liệu protocol |
-| **1. Sửa DB** | ✅ Xong (mục 5.2): migration `000003`–`000004`, `full_setup.sql`, 99 query | Đã chạy up/down/up sạch |
-| **2. Khung socket** | `netcore` (C): TCP, framing, CRC, heartbeat, retry, dedupe, log, WebSocket, `net/socketClient.js`; `HELLO`, `PING` | Web gửi PING nhận PONG; log đủ hai chiều |
-| **3. Tái dùng Qairlines** ✅ | Đã làm: module Go (`backend/go.mod`), `sqlc generate` với schema mới, port `pkg/`, `config/`, `infra/postgresql` (đã bỏ Redis, Stripe, worker và gửi mail của Go); viết lại repository cho schema mới (user, customer, admin, flight); `infra/bridge` thay Gin; thư viện `bridge` + `bridge_cli` bằng C; đặc tả [BRIDGE-PROTOCOL.md](BRIDGE-PROTOCOL.md). Handler đã nối: `SYS_HEALTH`, `AUTH_REGISTER/LOGIN/LOGOUT/TOKEN`, `FLIGHT_SEARCH/GET/LIST`. **Chưa làm (để giai đoạn 6, 8):** repository + usecase đặt vé, vé, ghế, thanh toán viết lại theo schema mới; thanh toán dùng cổng giả lập (giai đoạn 6), gửi vé điện tử qua email do C làm bằng SMTP (giai đoạn 7) | Test Go (`go test ./...`), test C (`make test`), đầu cuối `tests/e2e_bridge.sh` đều đạt |
-| **4. Auth** | `AUTH_*`; login/signup FE qua socket | |
-| **5. Tìm kiếm & so sánh** | `FLIGHT_SEARCH`, `FLIGHT_COMPARE`; FE thêm hạng ghế, lọc hãng, sắp xếp, bảng so sánh | |
-| **6. Đặt vé & thanh toán** | Gắn route `/confirm`; form liên hệ cho khách vãng lai; `SEAT_HOLD`, `BOOKING_CREATE`, `PAYMENT_*`; transaction chống trùng ghế | Đặt vé khứ hồi nhiều khách, cả có và không đăng nhập |
-| **7. Vé điện tử** | PNR + mã vé; email HTML + PDF | Email tới hộp thư thật |
-| **8. Quản lý vé** | Tra cứu PNR; xem / hủy (có hạn) / **đổi** / in; gửi lại vé | |
-| **9. Thông báo** | Scheduler, `ADMIN_FLIGHT_DISRUPT`, Hub, `NOTIFY_*`, chuông FE, email | Admin báo trễ → web khách nhận ngay |
-| **10. Admin & giám sát** | Port trang admin cũ; thống kê doanh thu thật; `MON_*`; C console | |
-| **11. Nâng cao & hoàn thiện** | Chọn từ mục 8; kiểm thử nhiều client đồng thời; báo cáo, slide | |
+| Giai đoạn | Chức năng | Việc làm | Hoàn thành khi |
+|---|---|---|---|
+| **0. Nền** ✅ | — | DB mới + dữ liệu mẫu (`full_setup.sql`), module Go, kênh nội bộ `infra/bridge`, thư viện `bridge` + `bridge_cli` bằng C, các tài liệu | `go test ./...`, `make test`, `tests/e2e_bridge.sh` đều đạt |
+| **1. Lõi giao vận (C)** | 1, 10 | Bước 0–9 của KIEN-TRUC: echo server → framing → header + CRC → `epoll` nhiều client → heartbeat → client console C + gửi lại → chống trùng → proxy gây lỗi → log từng gói + bộ đếm. Chạy với handler echo, chưa cần Go | Chạy đủ 6 kịch bản lỗi qua client console C; log đúng; có số liệu gửi lại/CRC lỗi |
+| **2. Nối Go và trình duyệt** | 1, 2, 3 | Bước 10–13: netcore nối bridge sang Go, phiên + `RESUME`, WebSocket tự cài, `socketClient.js`, đăng nhập/đăng ký trên FE | Đăng nhập, đăng ký từ trình duyệt; vẫn đúng khi đi qua proxy gây lỗi |
+| **3. Tìm kiếm, lọc, so sánh** | 4, 5, 6 | Mở rộng `FLIGHT_SEARCH` (hạng ghế, số khách, hãng, sắp xếp), thêm `FLIGHT_COMPARE`; FE lọc + bảng so sánh | So sánh được giá và thời gian bay của ≥ 3 hãng trên một tuyến |
+| **4. Chọn ghế thời gian thực** | 11 | `SEAT_MAP_GET/HOLD/RELEASE`, bộ lập lịch nhả ghế hết hạn, broadcast `SEAT_MAP_CHANGED` đáng tin | Hai trình duyệt chọn cùng một ghế: một người được, người kia thấy ghế đổi màu ngay |
+| **5. Đặt vé và thanh toán mô phỏng** | 12 | Đặt vé khách vãng lai + PNR, cổng thanh toán giả lập (thẻ/ví), chốt ghế trong một giao dịch, tích hợp `req_id` chống trùng | Đặt vé khứ hồi nhiều khách (có/không đăng nhập); mất phản hồi rồi gửi lại vẫn chỉ có một đơn |
+| **6. Vé điện tử qua email** | 13 | Bridge chiều Go → C, module SMTP trong C (SMTP cục bộ trước, TLS sau), ghi `sent_email` | Sau thanh toán, hộp thư nhận email có PNR và mã vé |
+| **7. Thông báo chuyến bay** | 15 | Bộ lập lịch cập nhật trạng thái, `ADMIN_FLIGHT_DISRUPT` (lệnh từ C console hoặc web admin), `PushToUser`, push đáng tin (ack + `RESUME`), email thông báo, chuông ở FE | Báo trễ → khách đang online nhận ngay; khách rớt mạng nối lại vẫn nhận đủ |
+| **8. Quản lý vé** | 14 | Làm trước: tra cứu bằng PNR, xem chi tiết, in vé, tải vé PDF (truyền file kiểu HW7). **Làm sau nếu kịp:** hủy vé, rồi đổi vé | Tra cứu và in được vé đã đặt, kể cả khi không đăng nhập |
+| **9. Admin nâng cao** | 9, 8, 7 | Thứ tự: giám sát server (cổng `MON_*`, C Server Console, trang web) → thống kê doanh thu thật → quản lý chuyến bay/vé/khách hàng | Số liệu giám sát đổi theo tải; doanh thu khớp với bảng `Payments` |
+| **10. Hoàn thiện** | tất cả | Kiểm thử tải 100–500 client, lỗi/ngắt mạng, rò bộ nhớ (`valgrind`, ASan), phần nâng cao ở mục 8, báo cáo, slide, ôn câu hỏi bảo vệ | Demo trọn vẹn từ đầu đến cuối, các câu hỏi bảo vệ trả lời được |
+
+**Nếu thiếu thời gian, giữ theo thứ tự ưu tiên:** giai đoạn 0 → 1 → 2 → 3 → 5 → 6 → 7 → 4 → 8 (phần xem/in) → 9 (giám sát). Hủy/đổi vé, thống kê, quản lý admin là phần cắt đầu tiên.
 
 ---
 

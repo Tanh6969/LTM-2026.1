@@ -324,6 +324,16 @@ Số liệu: số kết nối, byte vào/ra, gói vào/ra, **số lần gửi l�
 
 Thứ tự gợi ý: 1–5 là nền (khoảng 1 tuần), 6–9 là phần thầy chấm nặng nhất, 10–13 để nối vào hệ thống. Bước 12 có thể làm sớm hơn nếu muốn FE chạy sớm.
 
+**Bước nào phục vụ chức năng nào** (số chức năng theo [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md) mục 7):
+
+| Bước | Chức năng | Giai đoạn |
+|---|---|---|
+| 0–9 | 1 (kết nối socket), 10 (ghi log), nền cho 9 (giám sát) | 1 |
+| 10–11 | 2, 3 (đăng nhập, đăng ký), nền cho mọi chức năng nghiệp vụ; phía Go của bridge đã xong, còn phía C | 2 |
+| 12–13 | 1 (trình duyệt), 2, 3 | 2 |
+| 14 | 14 (tải vé PDF), 11 (broadcast đáng tin) cũng dùng lại cơ chế gửi lại/ack | 8 |
+| 15 | phần nâng cao mục 8: TLS, UDP đáng tin, rate limit | 10 |
+
 Sau mỗi bước nên chạy `valgrind` hoặc ASan để bắt rò bộ nhớ và truy cập ngoài biên.
 
 ---
@@ -365,15 +375,13 @@ Sau mỗi bước nên chạy `valgrind` hoặc ASan để bắt rò bộ nhớ 
 
 ## 10. Việc cần làm trong repo (khi bắt đầu)
 
-Thứ tự làm đã chốt:
+Lộ trình đầy đủ theo chức năng (giai đoạn, hoàn thành khi nào) nằm ở [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md) mục 9; tình trạng từng chức năng ở mục 7. Phần C đi theo 15 bước ở mục 7 của tài liệu này. Việc cần làm ngay tiếp theo:
 
-- [ ] 1. Viết `docs/PROTOCOL.md` chốt header, type, flags, mã lỗi, phân biệt ACK truyền tin với phản hồi nghiệp vụ (nguồn chân lý cho cả C, Go, JS).
-- [ ] 2. Tạo `backend/netcore/` theo mục 5.2 (Makefile, `-Wall -Wextra -fsanitize=address` ở chế độ debug). Viết TCP + framing + CRC, chạy với client console C (bước 1–4).
-- [ ] 3. Thêm heartbeat, retry, dedupe, lossy proxy, log, Monitor (bước 5–9), rồi truyền file bậc 2 (bước 14).
-- [ ] 4. Go: `backend/internal/infra/bridge` (listener nội bộ), thay `infra/api`; nối `bridge/` ở C với Go (bước 10–11).
-- [ ] 5. FE: thêm `net/socketClient.js`, `net/protocol.js`; đổi `services/` và hook gọi REST sang gửi message qua socket (bước 12–13).
-- [ ] 6. Chốt chính sách hủy/đổi theo hãng (bảng chính sách), cập nhật [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md): đổi Option D thành hướng chính, đánh dấu các lỗi DB đã sửa.
-- [ ] 7. (Tùy chọn, làm sau cùng) "server hãng giả" gọi song song, TLS.
+- [x] Kênh nội bộ Go (`backend/internal/infra/bridge`), thư viện `bridge` và `bridge_cli` bằng C, kiểm thử đầu cuối (giai đoạn 0).
+- [ ] Viết `docs/PROTOCOL.md` cho phía client: header, loại gói, cờ, mã lỗi, phân biệt ACK truyền tin với phản hồi nghiệp vụ (nguồn chân lý cho C, Go, JS).
+- [ ] **Giai đoạn 1:** thư mục `backend/netcore/src/` theo mục 5.2 (`transport/`, `protocol/`, `reliability/`, `logging/`), bước 1–9; chạy với client console C và handler echo.
+- [ ] **Giai đoạn 2:** netcore nối sang Go qua bridge (bước 10–11), WebSocket (bước 12), `frontend/src/net/socketClient.js` (bước 13).
+- [ ] Các giai đoạn nghiệp vụ 3–9 theo bảng lộ trình; mỗi giai đoạn chỉ thêm message vào bridge và handler tương ứng.
 
 ---
 

@@ -82,7 +82,7 @@ Quy tắc:
 | `0x0202` | `FLIGHT_GET` | không | `{flightId}` (số hoặc chuỗi) | thông tin một chuyến bay |
 | `0x0203` | `FLIGHT_LIST` | không | `{page, limit}` (mặc định 1 và 10; `limit` tối đa 100) | `{message, data:[chuyến bay]}` |
 
-Quy ước nhóm mã cho các giai đoạn sau (chưa triển khai): `0x01xx` xác thực, `0x02xx` chuyến bay, `0x03xx` đặt vé/giữ ghế, `0x04xx` thanh toán, `0x05xx` quản lý vé, `0x06xx` thông báo (push), `0x07xx` admin, `0x08xx` giám sát. Thêm loại mới: khai báo hằng ở [types.go](../backend/internal/infra/bridge/types.go) và [bridge.h](../backend/netcore/include/bridge.h), rồi `router.Handle(...)`.
+Message dự kiến cho từng chức năng (chọn ghế, đặt vé, thanh toán, thông báo, giám sát...) liệt kê ở [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md) mục 7. Quy ước nhóm mã cho các giai đoạn sau (chưa triển khai): `0x01xx` xác thực, `0x02xx` chuyến bay, `0x03xx` đặt vé/giữ ghế, `0x04xx` thanh toán, `0x05xx` quản lý vé, `0x06xx` thông báo (push), `0x07xx` admin, `0x08xx` giám sát. Thêm loại mới: khai báo hằng ở [types.go](../backend/internal/infra/bridge/types.go) và [bridge.h](../backend/netcore/include/bridge.h), rồi `router.Handle(...)`.
 
 ## 5. Mã kết quả (`status` trong `RESPONSE`)
 
