@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/internal/infra/api/dto"
-	"github.com/spaghetti-lover/qairlines/internal/infra/api/mappers"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/internal/infra/api/dto"
+	"ltm-flight/internal/infra/api/mappers"
 )
 
 type ISearchFlightsUseCase interface {

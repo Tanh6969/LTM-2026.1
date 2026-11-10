@@ -3,8 +3,8 @@ package ticket
 import (
 	"context"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/internal/domain/entities"
 )
 
 type IGetTicketsByFlightIDUseCase interface {

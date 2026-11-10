@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
+	"ltm-flight/internal/domain/entities"
 )
 
 var (

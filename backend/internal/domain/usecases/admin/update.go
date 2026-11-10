@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/internal/domain/entities"
 )
 
 type UpdateAdminInput struct {

@@ -1,0 +1,27 @@
+version: "1"
+
+packages:
+  - name: "db"
+    path: "./db/sqlc"
+    queries: "./db/query/"
+    schema: "./db/migrations/"
+    engine: "postgresql"
+    # Nếu đặt true, các struct được generate sẽ có tag JSON => hữu ích cho việc serialize sang JSON, như khi trả về API
+    emit_json_tags: true
+    # Chỉ định gói (package) Go mà sqlc sẽ sử dụng để tạo code tương tác với cơ sở dữ liệu PostgreSQL
+    sql_package: "pgx/v5"
+    # Nếu true, SQLC sẽ generate code dùng prepared statements.
+    emit_prepared_queries: false
+    # Nếu true, SQLC sẽ tạo ra một interface cho các query methods, giúp dễ dàng mock và test.
+    emit_interface: true
+    # Nếu true, tên struct sẽ giống hệt tên bảng trong DB.Ở đây là false, SQLC sẽ tự động capitalize và chuyển tên bảng sang kiểu CamelCase (ví dụ: users → User).
+    emit_exact_table_names: false
+    emit_empty_slices: true
+    # emit_pointers_for_null_types: true
+    overrides:
+      - db_type: "timestamptz"
+        go_type: "time.Time"
+      # Cot date NOT NULL -> time.Time. Cot date cho phep NULL giu mac dinh pgtype.Date:
+      # neu ep ve time.Time thi quet gia tri NULL se loi (vd. admin chua co ngay sinh khong dang nhap duoc).
+      - db_type: "date"
+        go_type: "time.Time"

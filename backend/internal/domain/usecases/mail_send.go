@@ -3,7 +3,7 @@ package usecases
 import (
 	"context"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
+	"ltm-flight/internal/domain/adapters"
 )
 
 // IMailUseCase defines the interface for the mail use case.

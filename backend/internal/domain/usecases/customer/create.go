@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/internal/domain/entities"
 )
 
 type ICreateCustomerUseCase interface {
@@ -30,7 +30,7 @@ func (c *CreateCustomerUseCase) Execute(ctx context.Context, customer entities.C
 		return entities.User{}, errors.New("failed to check existing user")
 	}
 	if existingUser != nil {
-		return entities.User{}, errors.New("email already in use")
+		return entities.User{}, adapters.ErrEmailInUse
 	}
 
 	createdCustomer, err := c.customerRepository.CreateCustomerTx(ctx, customer)

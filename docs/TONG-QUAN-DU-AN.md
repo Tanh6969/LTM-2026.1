@@ -511,7 +511,7 @@ Mỗi lần chuyển trạng thái, hệ thống đều tự gửi thông báo c
 | **0. Chốt thiết kế** | ✅ Đã chốt phương án D. Còn lại: viết `docs/PROTOCOL.md` | Tài liệu protocol |
 | **1. Sửa DB** | ✅ Xong (mục 5.2): migration `000003`–`000004`, `full_setup.sql`, 99 query | Đã chạy up/down/up sạch |
 | **2. Khung socket** | `netcore` (C): TCP, framing, CRC, heartbeat, retry, dedupe, log, WebSocket, `net/socketClient.js`; `HELLO`, `PING` | Web gửi PING nhận PONG; log đủ hai chiều |
-| **3. Tái dùng Qairlines** | Giữ tầng usecase / repository / worker email / Stripe ở Go; chạy lại `sqlc generate` với query mới; thêm `infra/socket` thay handler Gin; nối `bridge` của C với Go | Các usecase chạy qua socket |
+| **3. Tái dùng Qairlines** ✅ | Đã làm: module Go (`backend/go.mod`), `sqlc generate` với schema mới, port `pkg/`, `config/`, `infra/{postgresql,mail,worker,stripe,cache}`; viết lại repository cho schema mới (user, customer, admin, flight); `infra/bridge` thay Gin; thư viện `bridge` + `bridge_cli` bằng C; đặc tả [BRIDGE-PROTOCOL.md](BRIDGE-PROTOCOL.md). Handler đã nối: `SYS_HEALTH`, `AUTH_REGISTER/LOGIN/LOGOUT/TOKEN`, `FLIGHT_SEARCH/GET/LIST`. **Chưa làm (để giai đoạn 6, 8):** repository + usecase đặt vé, vé, ghế, thanh toán viết lại theo schema mới; worker email chưa nối vì cần Redis | Test Go (`go test ./...`), test C (`make test`), đầu cuối `tests/e2e_bridge.sh` đều đạt |
 | **4. Auth** | `AUTH_*`; login/signup FE qua socket | |
 | **5. Tìm kiếm & so sánh** | `FLIGHT_SEARCH`, `FLIGHT_COMPARE`; FE thêm hạng ghế, lọc hãng, sắp xếp, bảng so sánh | |
 | **6. Đặt vé & thanh toán** | Gắn route `/confirm`; form liên hệ cho khách vãng lai; `SEAT_HOLD`, `BOOKING_CREATE`, `PAYMENT_*`; transaction chống trùng ghế | Đặt vé khứ hồi nhiều khách, cả có và không đăng nhập |

@@ -4,13 +4,13 @@ import (
 	"context"
 	"log"
 
-	appErrors "github.com/spaghetti-lover/qairlines/pkg/errors"
+	appErrors "ltm-flight/pkg/errors"
 
-	"github.com/spaghetti-lover/qairlines/config"
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
-	"github.com/spaghetti-lover/qairlines/pkg/token"
-	"github.com/spaghetti-lover/qairlines/pkg/utils"
+	"ltm-flight/config"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/internal/domain/entities"
+	"ltm-flight/pkg/token"
+	"ltm-flight/pkg/utils"
 )
 
 type LoginInput struct {

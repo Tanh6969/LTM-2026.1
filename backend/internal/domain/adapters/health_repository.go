@@ -3,7 +3,7 @@ package adapters
 import (
 	"context"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
+	"ltm-flight/internal/domain/entities"
 )
 
 type IHealthRepository interface {

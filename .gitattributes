@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Chay trong Linux/WSL: giu LF ke ca khi checkout tren Windows (CRLF lam hong Makefile va script)
+*.sh text eol=lf
+Makefile text eol=lf
+backend/netcore/** text eol=lf

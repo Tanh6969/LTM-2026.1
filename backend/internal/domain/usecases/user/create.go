@@ -6,9 +6,9 @@ package user
 // 	"errors"
 // 	"fmt"
 
-// 	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-// 	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
-// 	"github.com/spaghetti-lover/qairlines/internal/domain/usecases/customer"
+// 	"ltm-flight/internal/domain/adapters"
+// 	"ltm-flight/internal/domain/entities"
+// 	"ltm-flight/internal/domain/usecases/customer"
 // )
 
 // type IUserCreateUseCase interface {

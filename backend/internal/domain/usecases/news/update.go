@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/internal/infra/api/dto"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/internal/infra/api/dto"
 )
 
 var ErrNewsNotFound = errors.New("news post not found")

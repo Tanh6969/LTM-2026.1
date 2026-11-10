@@ -68,7 +68,7 @@ flowchart LR
       BR[Bridge client]
     end
     subgraph go["backend (Go) — nghiệp vụ"]
-      SRV[infra/socket<br/>listener nội bộ]
+      SRV[infra/bridge<br/>listener nội bộ]
       UC[usecase · domain]
       DB[(Postgres)]
       EXT[mail · stripe · scheduler]
@@ -86,7 +86,7 @@ flowchart LR
 ```
 
 - `netcore` thay thế vai trò `infra/api` (Gin) của Qairlines. `usecase`, `domain`, `postgresql`, `mail`, `stripe`, `worker` giữ nguyên bên Go.
-- Go bên trong chỉ cần thêm một listener nội bộ (`infra/socket`) nói chuyện với C.
+- Go bên trong chỉ cần thêm một listener nội bộ (`infra/bridge`) nói chuyện với C.
 
 ---
 
@@ -237,7 +237,7 @@ backend/
 │   ├── tests/                  # test frame, CRC, cửa sổ, RTO, dedupe
 │   └── Makefile
 ├── internal/                   # Go (giữ nguyên): domain, usecase, postgresql, mail, stripe, worker
-│   └── infra/socket/           # listener nội bộ nhận từ C (thay infra/api của Gin)
+│   └── infra/bridge/           # listener nội bộ nhận từ C (thay infra/api của Gin)
 └── db/                         # schema, migration, query (đã có)
 
 frontend/src/
@@ -265,11 +265,13 @@ frontend/src/
 
 Tổng khoảng **3.000–3.800 dòng trong 12–15 file, mỗi file 100–500 dòng**. Đủ nhỏ để tự gõ tay và hiểu từng dòng. Mẹo học: viết xong một module, đóng file và chép lại từ trí nhớ để kiểm tra có hiểu thật không.
 
-### 5.3 Cầu nối với Go (`bridge.c` ↔ `infra/socket`)
-- Dùng **cùng định dạng frame** cho kết nối nội bộ (Unix domain socket trong WSL/Linux, hoặc TCP localhost). Tận dụng lại `frame.c`.
-- Mỗi yêu cầu chuyển cho Go kèm `conn_id`/`session_id` và token. Go kiểm tra token, xử lý, trả `conn_id` cùng phản hồi.
-- Khi đăng nhập thành công, Go trả kèm chỉ thị "gắn kết nối này với `user_id`". C ghi vào bảng `user_id → các kết nối` để định tuyến push.
-- Go muốn đẩy thông báo: gửi `PUSH{target: user_id | flight_id | broadcast, payload}` cho C. C tìm kết nối đích, gắn `seq`, giữ trong hàng đợi chưa ack rồi gửi.
+### 5.3 Cầu nối với Go (`bridge.c` ↔ `infra/bridge`)
+> **Đã triển khai ở giai đoạn 3** — đặc tả đầy đủ trong [BRIDGE-PROTOCOL.md](BRIDGE-PROTOCOL.md). Điểm khác so với dự kiến ban đầu: **Go (không phải C) giữ ánh xạ `conn_id` → người dùng**, nên C không cần biết user.
+
+- Khung nội bộ riêng (header 24 byte + JSON, không có CRC/seq/ack vì đường cục bộ), chạy trên TCP localhost (mặc định `:9100`) hoặc Unix socket. C dùng thư viện `src/bridge/` để đọc/ghi khung.
+- netcore gán `conn_id` cho mỗi client, gửi `CONN_OPEN` / `REQUEST` / `CONN_CLOSE`. Go xử lý và trả `RESPONSE` cùng `conn_id`, `req_id`.
+- Đăng nhập thành công thì Go gắn danh tính vào `conn_id` đó (trong `Session`). Token PASETO do Go cấp và kiểm tra.
+- Go muốn đẩy thông báo: tự tìm các `conn_id` của người dùng rồi gửi `PUSH` cho từng `conn_id` (hoặc `conn_id = 0` để broadcast). C chỉ cần chuyển tiếp theo `conn_id`, gắn `seq` của giao thức client, giữ trong hàng đợi chưa ack rồi gửi.
 - Nếu Go chết/khởi động lại: C giữ client, trả lỗi tạm thời `503`, kết nối lại Go theo backoff.
 
 ### 5.4 Log
@@ -368,7 +370,7 @@ Thứ tự làm đã chốt:
 - [ ] 1. Viết `docs/PROTOCOL.md` chốt header, type, flags, mã lỗi, phân biệt ACK truyền tin với phản hồi nghiệp vụ (nguồn chân lý cho cả C, Go, JS).
 - [ ] 2. Tạo `backend/netcore/` theo mục 5.2 (Makefile, `-Wall -Wextra -fsanitize=address` ở chế độ debug). Viết TCP + framing + CRC, chạy với client console C (bước 1–4).
 - [ ] 3. Thêm heartbeat, retry, dedupe, lossy proxy, log, Monitor (bước 5–9), rồi truyền file bậc 2 (bước 14).
-- [ ] 4. Go: `backend/internal/infra/socket` (listener nội bộ), thay `infra/api`; nối `bridge/` ở C với Go (bước 10–11).
+- [ ] 4. Go: `backend/internal/infra/bridge` (listener nội bộ), thay `infra/api`; nối `bridge/` ở C với Go (bước 10–11).
 - [ ] 5. FE: thêm `net/socketClient.js`, `net/protocol.js`; đổi `services/` và hook gọi REST sang gửi message qua socket (bước 12–13).
 - [ ] 6. Chốt chính sách hủy/đổi theo hãng (bảng chính sách), cập nhật [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md): đổi Option D thành hướng chính, đánh dấu các lỗi DB đã sửa.
 - [ ] 7. (Tùy chọn, làm sau cùng) "server hãng giả" gọi song song, TLS.

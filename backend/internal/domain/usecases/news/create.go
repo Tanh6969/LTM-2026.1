@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
-	"github.com/spaghetti-lover/qairlines/internal/infra/api/dto"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/internal/domain/entities"
+	"ltm-flight/internal/infra/api/dto"
 )
 
 type ICreateNewsUseCase interface {

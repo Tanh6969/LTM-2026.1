@@ -3,7 +3,7 @@ package admin
 import (
 	"context"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
+	"ltm-flight/internal/domain/adapters"
 )
 
 type IDeleteAdminUseCase interface {

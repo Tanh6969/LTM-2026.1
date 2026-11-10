@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
+	"ltm-flight/internal/domain/adapters"
 )
 
 type IDeleteCustomerUseCase interface {

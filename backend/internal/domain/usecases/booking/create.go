@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/internal/domain/entities"
-	"github.com/spaghetti-lover/qairlines/internal/infra/api/dto"
-	"github.com/spaghetti-lover/qairlines/internal/infra/api/mappers"
-	"github.com/spaghetti-lover/qairlines/internal/infra/worker"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/internal/domain/entities"
+	"ltm-flight/internal/infra/api/dto"
+	"ltm-flight/internal/infra/api/mappers"
+	"ltm-flight/internal/infra/worker"
 )
 
 type ICreateBookingUseCase interface {

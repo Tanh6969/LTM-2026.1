@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
+	"ltm-flight/internal/domain/adapters"
 )
 
 type ICreatePaymentIntentUsecase interface {

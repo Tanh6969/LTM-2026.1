@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/spaghetti-lover/qairlines/internal/domain/adapters"
-	"github.com/spaghetti-lover/qairlines/pkg/utils"
+	"ltm-flight/internal/domain/adapters"
+	"ltm-flight/pkg/utils"
 )
 
 // Define errors
