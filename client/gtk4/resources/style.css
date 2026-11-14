@@ -1,0 +1,83 @@
+window, .app-shell { background: #f8fafc; color: #182436; font-family: "Segoe UI", sans-serif; }
+headerbar { background: white; }
+.topbar { background: #ffffff; border-bottom: 1px solid #e9edf2; padding: 8px 26px; min-height: 86px; }
+.brand-name { color: #182436; font-size: 20px; font-weight: 800; }
+.nav-link { background: transparent; box-shadow: none; border: 0; color: #263140; font-size: 16px; font-weight: 600; padding: 10px 14px; }
+.nav-link:hover, .nav-link:focus, .nav-link.nav-active { background: transparent; color: #e8604c; }
+.header-search { background: #faf5ee; border: 0; border-radius: 50%; box-shadow: none; color: #334155; font-size: 25px; min-width: 42px; min-height: 42px; padding: 0; }
+.header-search:hover { background: #e8604c; color: white; }
+.nav-primary, .primary-button { background: #e8604c; background-image: none; border: 0; border-radius: 9px; box-shadow: none; color: white; font-weight: 700; padding: 11px 20px; }
+.nav-primary:hover, .primary-button:hover { background: #d34833; color: white; }
+.secondary-button { background: white; border: 1px solid #e2e8f0; border-radius: 9px; color: #334155; font-weight: 600; padding: 10px 17px; }
+.secondary-button:hover { background: #fff5f3; color: #d34833; }
+.hero { background: #192433; min-height: 570px; }
+.hero-scrim { background: rgba(9, 20, 34, 0.57); }
+.hero-content { padding: 34px 26px; }
+.hero-kicker { color: #ff8a70; font-size: 29px; font-weight: 700; }
+.hero-title { color: white; font-size: 50px; font-weight: 800; }
+.hero-subtitle { color: #edf3f8; font-size: 21px; }
+.hero-controls { padding: 0 30px 20px 0; }
+.hero-arrow { background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 40px; color: white; font-size: 23px; min-width: 38px; min-height: 38px; padding: 0; }
+.hero-arrow:hover { background: #e8604c; border-color: #e8604c; color: white; }
+.hero-indicator { color: white; font-size: 13px; font-weight: 800; }
+.search-card { background: #ffffff; border-radius: 12px; box-shadow: 0 10px 32px rgba(15, 23, 42, 0.18); }
+.search-tabs { background: #f2f3f5; border-radius: 10px 10px 0 0; }
+.search-tabs button { border: 0; border-radius: 9px 9px 0 0; box-shadow: none; font-size: 13px; font-weight: 800; min-height: 55px; }
+.search-tab-active { background: #e8604c; color: white; }
+.search-tab-active:hover { background: #d34833; color: white; }
+.search-tab-pending { background: #f2f3f5; color: #475569; }
+.search-form { padding: 6px 8px; }
+.search-field { background: white; border-right: 1px solid #e5e7eb; min-height: 95px; padding: 12px 9px; }
+.search-caption { color: #718096; font-size: 13px; }
+.search-entry { background: transparent; border: 0; box-shadow: none; color: #182436; font-size: 15px; font-weight: 700; min-height: 28px; padding: 0; }
+.search-entry:focus { border: 0; box-shadow: none; }
+.swap-button { background: white; border: 0; box-shadow: none; min-width: 36px; padding: 0; }
+.swap-button:hover { background: #fff2ed; }
+.search-submit { background: #e8604c; border: 0; border-radius: 0 9px 9px 0; box-shadow: none; color: white; font-size: 14px; font-weight: 800; min-width: 150px; padding: 12px; }
+.search-submit:hover { background: #d34833; color: white; }
+.search-footer { border-top: 1px solid #edf0f3; padding: 3px 17px; }
+.trip-type { color: #d34833; font-size: 13px; font-weight: 700; }
+.text-button { background: transparent; border: 0; box-shadow: none; color: #d34833; font-size: 13px; font-weight: 700; padding: 5px; }
+.text-button:hover { color: #a53b2b; }
+.field-caption { color: #64748b; font-size: 12px; font-weight: 700; }
+.form-entry { background: #ffffff; border: 1px solid #dce3eb; border-radius: 8px; color: #182436; min-height: 42px; padding: 5px 10px; }
+.form-entry:focus { border-color: #e8604c; }
+.section { padding: 38px 48px; }
+.section-kicker { color: #e8604c; font-size: 13px; font-weight: 800; }
+.section-title { color: #182436; font-size: 27px; font-weight: 800; }
+.popular-title { color: #182436; font-size: 40px; font-weight: 800; }
+.muted { color: #66758a; }
+.feature-card, .content-card, .auth-card { background: white; border: 1px solid #e9edf2; border-radius: 14px; padding: 25px; box-shadow: 0 4px 18px rgba(20, 40, 60, 0.06); }
+.feature-icon { background: #fdf3f2; border-radius: 40px; color: #e8604c; font-size: 27px; font-weight: 700; min-width: 56px; min-height: 56px; padding: 8px; }
+.feature-title { color: #182436; font-size: 16px; font-weight: 700; }
+.feature-card:hover { background: #fff8f6; border-color: #e8604c; }
+.destination-card { background: #1d2939; border: 0; border-radius: 15px; padding: 0; box-shadow: 0 8px 22px rgba(20, 40, 60, 0.14); }
+.destination-card:hover { box-shadow: 0 14px 32px rgba(232, 96, 76, 0.3); }
+.destination-caption { background: rgba(232, 96, 76, 0.88); color: white; padding: 16px; }
+.destination-badge { color: #fff4ef; font-size: 11px; font-weight: 800; }
+.destination-title { color: white; font-size: 18px; font-weight: 800; }
+.destination-action { color: white; font-size: 12px; font-weight: 700; }
+.intro-section { background: #fffaf6; padding: 46px 48px; }
+.intro-point { color: #334155; font-size: 15px; font-weight: 700; }
+.about-section { background: #202333; }
+.about-scrim { background: rgba(23, 27, 43, 0.72); padding: 42px 48px; }
+.about-kicker { color: #ff8a70; font-size: 17px; font-weight: 800; }
+.about-title { color: white; font-size: 35px; font-weight: 800; }
+.about-text { color: #e4e9f1; font-size: 15px; }
+.about-tile { border: 1px solid rgba(255, 255, 255, 0.45); border-radius: 12px; min-height: 95px; padding: 12px 16px; }
+.about-tile:hover { background: #e8604c; border-color: #e8604c; }
+.about-icon { color: #ff8a70; font-size: 24px; font-weight: 800; }
+.about-tile-title { color: white; font-size: 15px; font-weight: 700; }
+.partners-section { background: #e8604c; padding: 38px 48px 46px; }
+.partners-title { color: white; font-size: 25px; font-weight: 800; }
+.partner-logo { background: white; border-radius: 11px; padding: 14px; }
+.auth-page { background: #fdf3f2; }
+.auth-card { padding: 38px; }
+.auth-title { color: #182436; font-size: 30px; font-weight: 800; }
+.results-list { background: transparent; }
+.results-list row { background: white; border: 1px solid #e9edf2; border-radius: 12px; margin-bottom: 12px; padding: 18px 20px; }
+.results-list row:hover, .results-list row:selected { background: #fff8f6; border-color: #e8604c; }
+.flight-number { color: #182436; font-size: 17px; font-weight: 800; }
+.flight-route { color: #334155; font-size: 16px; font-weight: 700; }
+.flight-price { color: #e8604c; font-size: 18px; font-weight: 800; }
+.status-bar { background: white; border-top: 1px solid #e9edf2; color: #66758a; padding: 9px 28px; }

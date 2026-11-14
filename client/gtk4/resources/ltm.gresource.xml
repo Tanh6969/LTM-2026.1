@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/vn/ltm/flight">
+    <file>style.css</file>
+    <file>logo.png</file>
+    <file>bg-1.jpg</file>
+    <file>tours_background.jpg</file>
+    <file>clouds-background.jpg</file>
+    <file>golden_bridge.jpg</file>
+    <file>phu-quoc.jpg</file>
+    <file>quy-nhon.jpg</file>
+    <file>bangkok.jpg</file>
+    <file>image-6.jpg</file>
+    <file>vietnam_airline.png</file>
+    <file>vietjet.png</file>
+    <file>china_airline.png</file>
+    <file>hongkong_airline.png</file>
+    <file>pin.svg</file>
+    <file>calendar.svg</file>
+    <file>search.svg</file>
+    <file>swap.svg</file>
+  </gresource>
+</gresources>
