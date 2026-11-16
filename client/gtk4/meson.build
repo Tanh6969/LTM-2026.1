@@ -13,6 +13,18 @@ if host_machine.system() == 'windows'
   deps += cc.find_library('ws2_32')
 endif
 
+# GStreamer video background (optional — build without if not installed)
+gst     = dependency('gstreamer-1.0',       required : false)
+gst_vid = dependency('gstreamer-video-1.0', required : false)
+gst_app = dependency('gstreamer-app-1.0',   required : false)
+if gst.found() and gst_vid.found() and gst_app.found()
+  deps += [gst, gst_vid, gst_app]
+  add_project_arguments('-DHAVE_GST=1', language : 'c')
+  message('GStreamer found — video background enabled')
+else
+  message('GStreamer not found — video background disabled (slideshow fallback)')
+endif
+
 executable('ltm-flight',
   ['src/main.c', 'src/net_client.c', resources],
   dependencies : deps,

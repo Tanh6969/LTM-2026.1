@@ -6,6 +6,12 @@
 
 #include "net_client.h"
 
+#ifdef HAVE_GST
+#include <gst/gst.h>
+#include <gst/video/video.h>
+#include <gst/app/gstappsink.h>
+#endif
+
 enum { MSG_HEALTH = 0x0001, MSG_REGISTER = 0x0101, MSG_LOGIN = 0x0102,
        MSG_LOGOUT = 0x0103, MSG_SEARCH = 0x0201, MSG_FLIGHT_GET = 0x0202,
        MSG_FLIGHT_LIST = 0x0203 };
@@ -26,6 +32,11 @@ struct App {
     NetClient *network;
     GThread *worker;
     gboolean logged_in;
+#ifdef HAVE_GST
+    GtkWidget  *hero_video_picture; /* GtkPicture updated each video frame */
+    GstElement *video_pipeline;
+    guint       video_bus_watch;
+#endif
 };
 
 struct Task {
@@ -249,23 +260,101 @@ static void flight_detail_result(App *app, const NetReply *reply) {
     if (parser) g_object_unref(parser);
 }
 
+static void add_flight_row(App *app, const char *id, const char *number,
+                           const char *airline, const char *from, const char *to,
+                           const char *time, gint64 price) {
+    GtkWidget *row = gtk_list_box_row_new();
+    GtkWidget *layout = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 24);
+    GtkWidget *info = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_hexpand(info, TRUE);
+
+    char *heading = g_strdup_printf("%s  ·  %s", number, airline);
+    GtkWidget *name = gtk_label_new(heading);
+    gtk_label_set_xalign(GTK_LABEL(name), 0);
+    gtk_widget_add_css_class(name, "flight-number");
+    gtk_box_append(GTK_BOX(info), name);
+
+    char *route = g_strdup_printf("%s  →  %s", from, to);
+    GtkWidget *route_label = gtk_label_new(route);
+    gtk_label_set_xalign(GTK_LABEL(route_label), 0);
+    gtk_widget_add_css_class(route_label, "flight-route");
+    gtk_box_append(GTK_BOX(info), route_label);
+
+    GtkWidget *departure = gtk_label_new(time);
+    gtk_label_set_xalign(GTK_LABEL(departure), 0);
+    gtk_widget_add_css_class(departure, "muted");
+    gtk_box_append(GTK_BOX(info), departure);
+
+    gtk_box_append(GTK_BOX(layout), info);
+
+    char *price_text = g_strdup_printf("Từ %" G_GINT64_FORMAT " đ", price);
+    GtkWidget *price_label = gtk_label_new(price_text);
+    gtk_widget_add_css_class(price_label, "flight-price");
+    gtk_widget_set_valign(price_label, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(layout), price_label);
+
+    GtkWidget *choose_btn = gtk_button_new_with_label("Chọn vé  →");
+    gtk_widget_add_css_class(choose_btn, "primary-button");
+    gtk_widget_set_valign(choose_btn, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(layout), choose_btn);
+
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), layout);
+    g_object_set_data_full(G_OBJECT(row), "flight-id", g_strdup(id), g_free);
+    gtk_list_box_append(GTK_LIST_BOX(app->results), row);
+
+    g_free(heading);
+    g_free(route);
+    g_free(price_text);
+}
+
+static void populate_mock_flights(App *app, const char *from, const char *to, const char *date) {
+    clear_results(app);
+    char t1[96], t2[96], t3[96], t4[96];
+    g_snprintf(t1, sizeof(t1), "%s  ·  08:30 - 10:45", date);
+    g_snprintf(t2, sizeof(t2), "%s  ·  11:15 - 13:25", date);
+    g_snprintf(t3, sizeof(t3), "%s  ·  14:00 - 16:15", date);
+    g_snprintf(t4, sizeof(t4), "%s  ·  17:45 - 20:00", date);
+
+    add_flight_row(app, "VN-245", "VN-245", "Vietnam Airlines", from, to, t1, 1850000);
+    add_flight_row(app, "VJ-134", "VJ-134", "Vietjet Air", from, to, t2, 1290000);
+    add_flight_row(app, "QH-202", "QH-202", "Bamboo Airways", from, to, t3, 1650000);
+    add_flight_row(app, "VU-331", "VU-331", "Vietravel Airlines", from, to, t4, 1150000);
+}
+
 static void selected_flight(GtkListBox *list, GtkListBoxRow *row, gpointer data) {
     (void)list;
     if (!row) return;
     App *app = data;
     const char *flight_id = g_object_get_data(G_OBJECT(row), "flight-id");
     if (!flight_id || !*flight_id) return;
+
+    const char *from = gtk_editable_get_text(GTK_EDITABLE(app->from));
+    const char *to = gtk_editable_get_text(GTK_EDITABLE(app->to));
+    const char *date = gtk_editable_get_text(GTK_EDITABLE(app->date));
+
+    char *info_text = g_strdup_printf(
+        "MÃ CHUYẾN BAY: %s\n\n"
+        "✦ Tuyến bay: %s  →  %s\n"
+        "✦ Ngày khởi hành: %s\n"
+        "✦ Hạng dịch vụ: Phổ thông linh hoạt (Economy Flex)\n"
+        "✦ Tiêu chuẩn hành lý: 12kg xách tay + 23kg ký gửi\n"
+        "✦ Trạng thái: Còn 18 ghế trống\n"
+        "✦ Suất ăn: Đã bao gồm bữa ăn nóng & đồ uống\n\n"
+        "Bấm 'Vé của tôi' để theo dõi vé sau khi hoàn tất đặt vé.",
+        flight_id, *from ? from : "Điểm đi", *to ? to : "Điểm đến", *date ? date : "2026-11-17");
+    gtk_label_set_text(GTK_LABEL(app->detail), info_text);
+    g_free(info_text);
+    show_page(app, "detail");
+
     JsonBuilder *builder = object_builder();
     add_string(builder, "flightId", flight_id);
     json_builder_end_object(builder);
-    set_status(app, "Đang tải chi tiết chuyến bay...");
     request(app, MSG_FLIGHT_GET, make_json(builder), flight_detail_result);
 }
 
 static void show_flights(App *app, const NetReply *reply) {
     if (reply->error || reply->status) {
-        char *message = response_error(reply);
-        set_status(app, message); g_free(message); return;
+        return;
     }
     JsonParser *parser = NULL;
     JsonObject *obj = parse_object(reply->body, &parser);
@@ -273,7 +362,6 @@ static void show_flights(App *app, const NetReply *reply) {
         ? json_object_get_member(obj, "data") : NULL;
     JsonArray *items = data && JSON_NODE_HOLDS_ARRAY(data) ? json_node_get_array(data) : NULL;
     if (!items) {
-        set_status(app, "Phản hồi danh sách chuyến bay không hợp lệ.");
         if (parser) g_object_unref(parser);
         return;
     }
@@ -290,40 +378,10 @@ static void show_flights(App *app, const NetReply *reply) {
         const char *time = json_string(flight, "departureTime");
         gint64 price = json_object_has_member(flight, "basePrice")
             ? json_object_get_int_member(flight, "basePrice") : 0;
-        GtkWidget *row = gtk_list_box_row_new();
-        GtkWidget *layout = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 24);
-        GtkWidget *info = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-        gtk_widget_set_hexpand(info, TRUE);
-        char *heading = g_strdup_printf("%s  ·  %s", number, airline);
-        GtkWidget *name = gtk_label_new(heading);
-        gtk_label_set_xalign(GTK_LABEL(name), 0);
-        gtk_widget_add_css_class(name, "flight-number");
-        gtk_box_append(GTK_BOX(info), name);
-        char *route = g_strdup_printf("%s  →  %s", from, to);
-        GtkWidget *route_label = gtk_label_new(route);
-        gtk_label_set_xalign(GTK_LABEL(route_label), 0);
-        gtk_widget_add_css_class(route_label, "flight-route");
-        gtk_box_append(GTK_BOX(info), route_label);
-        GtkWidget *departure = gtk_label_new(time);
-        gtk_label_set_xalign(GTK_LABEL(departure), 0);
-        gtk_widget_add_css_class(departure, "muted");
-        gtk_box_append(GTK_BOX(info), departure);
-        gtk_box_append(GTK_BOX(layout), info);
-        char *price_text = g_strdup_printf("Từ %" G_GINT64_FORMAT " đ", price);
-        GtkWidget *price_label = gtk_label_new(price_text);
-        gtk_widget_add_css_class(price_label, "flight-price");
-        gtk_widget_set_valign(price_label, GTK_ALIGN_CENTER);
-        gtk_box_append(GTK_BOX(layout), price_label);
-        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), layout);
-        g_object_set_data_full(G_OBJECT(row), "flight-id", g_strdup(id), g_free);
-        gtk_list_box_append(GTK_LIST_BOX(app->results), row);
-        g_free(heading);
-        g_free(route);
-        g_free(price_text);
+        add_flight_row(app, id, number, airline, from, to, time, price);
     }
-    set_status(app, count ? "Chọn một chuyến để xem chi tiết." : "Không tìm thấy chuyến bay.");
-    show_page(app, "flights");
-    g_object_unref(parser);
+    set_status(app, count ? "Đã cập nhật chuyến bay từ server." : "Không có chuyến bay từ server.");
+    if (parser) g_object_unref(parser);
 }
 
 static void search_clicked(GtkButton *button, gpointer data) {
@@ -333,20 +391,34 @@ static void search_clicked(GtkButton *button, gpointer data) {
     const char *to = gtk_editable_get_text(GTK_EDITABLE(app->to));
     const char *date = gtk_editable_get_text(GTK_EDITABLE(app->date));
     if (!*from || !*to || !*date || strcmp(from, to) == 0) {
-        set_status(app, "Nhập điểm đi, điểm đến khác nhau và ngày YYYY-MM-DD."); return;
+        set_status(app, "Vui lòng nhập điểm đi và điểm đến khác nhau.");
+        return;
     }
+
+    populate_mock_flights(app, from, to, date);
+    show_page(app, "flights");
+    set_status(app, "Chọn một chuyến bay để xem chi tiết hành trình.");
+
     JsonBuilder *builder = object_builder();
-    add_string(builder, "departureCity", from); add_string(builder, "arrivalCity", to);
+    add_string(builder, "departureCity", from);
+    add_string(builder, "arrivalCity", to);
     add_string(builder, "flightDate", date);
     json_builder_end_object(builder);
-    set_status(app, "Đang tìm chuyến bay...");
     request(app, MSG_SEARCH, make_json(builder), show_flights);
 }
 
 static void list_clicked(GtkButton *button, gpointer data) {
     (void)button;
     App *app = data;
-    set_status(app, "Đang tải chuyến bay...");
+    const char *from = gtk_editable_get_text(GTK_EDITABLE(app->from));
+    const char *to = gtk_editable_get_text(GTK_EDITABLE(app->to));
+    const char *date = gtk_editable_get_text(GTK_EDITABLE(app->date));
+    populate_mock_flights(app,
+        (*from && *from != ' ') ? from : "Hà Nội",
+        (*to && *to != ' ') ? to : "TP. Hồ Chí Minh",
+        (*date && *date != ' ') ? date : "2026-11-17");
+    show_page(app, "flights");
+    set_status(app, "Danh sách chuyến bay gợi ý.");
     request(app, MSG_FLIGHT_LIST, g_strdup("{\"page\":1,\"limit\":10}"), show_flights);
 }
 
@@ -363,10 +435,10 @@ static GtkWidget *ui_label(const char *text, const char *css_class) {
 }
 
 static GtkWidget *ui_button(const char *text, const char *css_class,
-                            GCallback callback, App *app) {
+                            GCallback callback, gpointer user_data) {
     GtkWidget *button = gtk_button_new_with_label(text);
-    add_class(button, css_class);
-    g_signal_connect(button, "clicked", callback, app);
+    if (css_class) add_class(button, css_class);
+    if (callback) g_signal_connect(button, "clicked", callback, user_data);
     return button;
 }
 
@@ -398,22 +470,131 @@ static GtkWidget *ui_field(GtkWidget *parent, const char *title,
     return group;
 }
 
-static GtkWidget *ui_search_field(const char *title, const char *placeholder,
-                                  const char *icon, GtkWidget **entry) {
-    GtkWidget *field = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+static void on_calendar_day_selected(GtkCalendar *cal, gpointer user_data) {
+    GtkWidget *popover = g_object_get_data(G_OBJECT(cal), "popover");
+    GtkEditable *entry = user_data;
+    GDateTime *dt = gtk_calendar_get_date(cal);
+    if (dt) {
+        char *formatted = g_date_time_format(dt, "%Y-%m-%d");
+        gtk_editable_set_text(entry, formatted);
+        g_free(formatted);
+        g_date_time_unref(dt);
+    }
+    if (popover) gtk_popover_popdown(GTK_POPOVER(popover));
+}
+
+static void on_calendar_btn_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
+    GtkWidget *popover = user_data;
+    gtk_popover_popup(GTK_POPOVER(popover));
+}
+
+static GtkWidget *ui_date_field(const char *title, GtkWidget **entry_out) {
+    GtkWidget *field = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     add_class(field, "search-field");
     gtk_widget_set_hexpand(field, TRUE);
-    GtkWidget *image = gtk_image_new_from_resource(icon);
-    gtk_widget_set_valign(image, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(field), image);
+
     GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
     gtk_widget_set_hexpand(content, TRUE);
     gtk_box_append(GTK_BOX(content), ui_label(title, "search-caption"));
-    *entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(*entry), placeholder);
-    gtk_entry_set_has_frame(GTK_ENTRY(*entry), FALSE);
-    add_class(*entry, "search-entry");
-    gtk_box_append(GTK_BOX(content), *entry);
+
+    GtkWidget *entry = gtk_entry_new();
+    GDateTime *now = g_date_time_new_now_local();
+    GDateTime *tomorrow = g_date_time_add_days(now, 1);
+    char *def_date = g_date_time_format(tomorrow, "%Y-%m-%d");
+    gtk_editable_set_text(GTK_EDITABLE(entry), def_date);
+    g_free(def_date);
+    g_date_time_unref(now);
+    g_date_time_unref(tomorrow);
+
+    gtk_entry_set_has_frame(GTK_ENTRY(entry), FALSE);
+    add_class(entry, "search-entry");
+    gtk_box_append(GTK_BOX(content), entry);
+    *entry_out = entry;
+
+    GtkWidget *popover = gtk_popover_new();
+    gtk_widget_set_parent(popover, field);
+    GtkWidget *cal = gtk_calendar_new();
+    g_object_set_data(G_OBJECT(cal), "popover", popover);
+    g_signal_connect(cal, "day-selected", G_CALLBACK(on_calendar_day_selected), entry);
+    gtk_popover_set_child(GTK_POPOVER(popover), cal);
+
+    GtkWidget *icon_btn = gtk_button_new();
+    add_class(icon_btn, "search-icon-btn");
+    gtk_button_set_child(GTK_BUTTON(icon_btn),
+        gtk_image_new_from_resource("/vn/ltm/flight/calendar.svg"));
+    gtk_widget_set_valign(icon_btn, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(icon_btn, "Bấm để chọn ngày");
+    g_signal_connect(icon_btn, "clicked", G_CALLBACK(on_calendar_btn_clicked), popover);
+
+    gtk_box_append(GTK_BOX(field), icon_btn);
+    gtk_box_append(GTK_BOX(field), content);
+    return field;
+}
+
+static void on_airport_chosen(GtkButton *btn, gpointer user_data) {
+    GtkWidget *popover = g_object_get_data(G_OBJECT(btn), "popover");
+    GtkEditable *entry = user_data;
+    const char *val = g_object_get_data(G_OBJECT(btn), "airport_val");
+    if (val && entry) gtk_editable_set_text(entry, val);
+    if (popover) gtk_popover_popdown(GTK_POPOVER(popover));
+}
+
+static void on_airport_picker_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
+    GtkWidget *popover = user_data;
+    gtk_popover_popup(GTK_POPOVER(popover));
+}
+
+static GtkWidget *ui_airport_field(const char *title, const char *default_val,
+                                  const char *icon_path, GtkWidget **entry_out) {
+    GtkWidget *field = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    add_class(field, "search-field");
+    gtk_widget_set_hexpand(field, TRUE);
+
+    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+    gtk_widget_set_hexpand(content, TRUE);
+    gtk_box_append(GTK_BOX(content), ui_label(title, "search-caption"));
+
+    GtkWidget *entry = gtk_entry_new();
+    gtk_editable_set_text(GTK_EDITABLE(entry), default_val);
+    gtk_entry_set_has_frame(GTK_ENTRY(entry), FALSE);
+    add_class(entry, "search-entry");
+    gtk_box_append(GTK_BOX(content), entry);
+    *entry_out = entry;
+
+    GtkWidget *popover = gtk_popover_new();
+    gtk_widget_set_parent(popover, field);
+
+    GtkWidget *list_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_margin_start(list_box, 6);
+    gtk_widget_set_margin_end(list_box, 6);
+    gtk_widget_set_margin_top(list_box, 6);
+    gtk_widget_set_margin_bottom(list_box, 6);
+
+    const char *airports[] = {
+        "Hà Nội (HAN)", "TP. Hồ Chí Minh (SGN)", "Đà Nẵng (DAD)",
+        "Nha Trang (CXR)", "Phú Quốc (PQC)", "Đà Lạt (DLI)",
+        "Hải Phòng (HPH)", "Huế (HUI)", "Bangkok (BKK)"
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(airports); i++) {
+        GtkWidget *item = ui_button(airports[i], "airport-popover-item",
+                                    G_CALLBACK(on_airport_chosen), entry);
+        g_object_set_data(G_OBJECT(item), "airport_val", (gpointer)airports[i]);
+        g_object_set_data(G_OBJECT(item), "popover", popover);
+        gtk_box_append(GTK_BOX(list_box), item);
+    }
+    gtk_popover_set_child(GTK_POPOVER(popover), list_box);
+
+    GtkWidget *icon_btn = gtk_button_new();
+    add_class(icon_btn, "search-icon-btn");
+    gtk_button_set_child(GTK_BUTTON(icon_btn),
+        gtk_image_new_from_resource(icon_path));
+    gtk_widget_set_valign(icon_btn, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(icon_btn, "Bấm để chọn nhanh sân bay");
+    g_signal_connect(icon_btn, "clicked", G_CALLBACK(on_airport_picker_clicked), popover);
+
+    gtk_box_append(GTK_BOX(field), icon_btn);
     gtk_box_append(GTK_BOX(field), content);
     return field;
 }
@@ -441,13 +622,29 @@ static GtkWidget *ui_search_submit(App *app) {
     return button;
 }
 
-static GtkWidget *ui_feature(const char *icon, const char *title, const char *description) {
-    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+static GtkWidget *ui_feature(const char *icon, const char *title) {
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
     add_class(card, "feature-card");
     gtk_widget_set_hexpand(card, TRUE);
-    gtk_box_append(GTK_BOX(card), ui_label(icon, "feature-icon"));
-    gtk_box_append(GTK_BOX(card), ui_label(title, "feature-title"));
-    gtk_box_append(GTK_BOX(card), ui_label(description, "muted"));
+    gtk_widget_set_halign(card, GTK_ALIGN_FILL);
+
+    GtkWidget *icon_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    add_class(icon_box, "feature-icon-wrapper");
+    gtk_widget_set_size_request(icon_box, 64, 64);
+    gtk_widget_set_halign(icon_box, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(icon_box, GTK_ALIGN_CENTER);
+
+    GtkWidget *icon_lbl = ui_label(icon, "feature-icon-symbol");
+    gtk_widget_set_halign(icon_lbl, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(icon_lbl, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(icon_lbl, TRUE);
+    gtk_box_append(GTK_BOX(icon_box), icon_lbl);
+
+    GtkWidget *title_lbl = ui_label(title, "feature-title");
+    gtk_widget_set_halign(title_lbl, GTK_ALIGN_CENTER);
+
+    gtk_box_append(GTK_BOX(card), icon_box);
+    gtk_box_append(GTK_BOX(card), title_lbl);
     return card;
 }
 
@@ -469,6 +666,7 @@ static GtkWidget *ui_picture(const char *filename) {
     return picture;
 }
 
+#ifndef HAVE_GST
 static GtkWidget *ui_hero_picture(const char *filename) {
     char *path = g_strdup_printf("/vn/ltm/flight/%s", filename);
     GError *error = NULL;
@@ -495,6 +693,7 @@ static GtkWidget *ui_hero_picture(const char *filename) {
     g_object_unref(pixels);
     return picture;
 }
+#endif
 
 static gboolean ui_animations_enabled(void) {
     gboolean enabled = TRUE;
@@ -503,6 +702,7 @@ static gboolean ui_animations_enabled(void) {
     return enabled;
 }
 
+#ifndef HAVE_GST
 static void ui_hero_step(App *app, gint direction) {
     if (!app->hero_stack) return;
     if (gtk_stack_get_transition_running(GTK_STACK(app->hero_stack))) return;
@@ -538,6 +738,7 @@ static void ui_hero_manual(GtkButton *button, gpointer data) {
     if (ui_animations_enabled())
         app->hero_timer = g_timeout_add_seconds(8, ui_hero_tick, app);
 }
+#endif
 
 static void ui_scroll_to_search(App *app) {
     GtkAdjustment *scroll = gtk_scrolled_window_get_vadjustment(
@@ -605,6 +806,162 @@ static GtkWidget *ui_partner_logo(const char *image) {
     return card;
 }
 
+/* ── GStreamer video background ─────────────────────────────────────────── */
+#ifdef HAVE_GST
+
+typedef struct { App *app; GdkTexture *texture; } TexUpdate;
+
+/* Called on GTK main thread: swap the picture's paintable */
+static gboolean video_apply_texture(gpointer data) {
+    TexUpdate *tu = data;
+    if (tu->app->hero_video_picture)
+        gtk_picture_set_paintable(GTK_PICTURE(tu->app->hero_video_picture),
+                                  GDK_PAINTABLE(tu->texture));
+    g_object_unref(tu->texture);
+    g_free(tu);
+    return G_SOURCE_REMOVE;
+}
+
+/* Called on GStreamer thread: decode one frame → schedule GTK update */
+static GstFlowReturn video_on_sample(GstAppSink *sink, gpointer data) {
+    App *app = data;
+    GstSample *sample = gst_app_sink_pull_sample(sink);
+    if (!sample) return GST_FLOW_OK;
+
+    GstCaps   *caps   = gst_sample_get_caps(sample);
+    GstBuffer *buffer = gst_sample_get_buffer(sample);
+    GstVideoInfo info;
+    if (!gst_video_info_from_caps(&info, caps)) {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
+    }
+
+    GstMapInfo map;
+    if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+        GBytes     *bytes   = g_bytes_new(map.data, map.size);
+        GdkTexture *texture = gdk_memory_texture_new(
+            GST_VIDEO_INFO_WIDTH(&info),
+            GST_VIDEO_INFO_HEIGHT(&info),
+            GDK_MEMORY_R8G8B8,
+            bytes,
+            GST_VIDEO_INFO_PLANE_STRIDE(&info, 0));
+        g_bytes_unref(bytes);
+        gst_buffer_unmap(buffer, &map);
+
+        TexUpdate *tu = g_new(TexUpdate, 1);
+        tu->app     = app;
+        tu->texture = texture;   /* ownership transferred */
+        g_main_context_invoke(NULL, video_apply_texture, tu);
+    }
+    gst_sample_unref(sample);
+    return GST_FLOW_OK;
+}
+
+/* GStreamer bus: handle EOS (loop) and errors */
+static gboolean video_bus_cb(GstBus *bus, GstMessage *msg, gpointer data) {
+    App *app = data;
+    (void)bus;
+    switch (GST_MESSAGE_TYPE(msg)) {
+    case GST_MESSAGE_EOS:
+        /* Seek back to beginning for seamless looping */
+        gst_element_seek_simple(app->video_pipeline, GST_FORMAT_TIME,
+            GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT, 0);
+        break;
+    case GST_MESSAGE_ERROR: {
+        GError *err = NULL;
+        gst_message_parse_error(msg, &err, NULL);
+        g_warning("GStreamer: %s", err ? err->message : "unknown error");
+        g_clear_error(&err);
+        break;
+    }
+    default: break;
+    }
+    return TRUE;
+}
+
+/* Find video.mp4 from several well-known relative paths */
+static char *video_find_path(void) {
+    const char *env = g_getenv("LTM_VIDEO");
+    if (env && g_file_test(env, G_FILE_TEST_EXISTS))
+        return g_canonicalize_filename(env, NULL);
+
+    const char *candidates[] = {
+        "frontend/public/video.mp4",
+        "../frontend/public/video.mp4",
+        "../../frontend/public/video.mp4",
+        "../../../frontend/public/video.mp4",
+        "../../../../frontend/public/video.mp4",
+        NULL
+    };
+    for (int i = 0; candidates[i]; i++) {
+        if (g_file_test(candidates[i], G_FILE_TEST_EXISTS)) {
+            char *abs_path = g_canonicalize_filename(candidates[i], NULL);
+            g_message("Video file located at: %s", abs_path);
+            return abs_path;
+        }
+    }
+    return NULL;
+}
+
+/* Start the GStreamer pipeline using playbin with custom appsink bin */
+static void video_start(App *app, const char *path) {
+    char *uri = gst_filename_to_uri(path, NULL);
+    if (!uri) uri = g_filename_to_uri(path, NULL, NULL);
+    if (!uri) { g_warning("Cannot convert path to URI: %s", path); return; }
+
+    app->video_pipeline = gst_element_factory_make("playbin", "video_player");
+    if (!app->video_pipeline) {
+        g_warning("Cannot create playbin element");
+        g_free(uri);
+        return;
+    }
+    g_object_set(app->video_pipeline, "uri", uri, "flags", 1, NULL);
+    g_free(uri);
+
+    GError *err = NULL;
+    GstElement *vsink_bin = gst_parse_bin_from_description(
+        "videoconvert ! video/x-raw,format=RGB ! appsink name=vsink sync=true max-buffers=2 drop=true",
+        TRUE, &err);
+    if (!vsink_bin || err) {
+        g_warning("Cannot create vsink bin: %s", err ? err->message : "?");
+        g_clear_error(&err);
+        g_clear_object(&app->video_pipeline);
+        return;
+    }
+
+    GstElement *vsink = gst_bin_get_by_name(GST_BIN(vsink_bin), "vsink");
+    if (vsink) {
+        GstAppSinkCallbacks cbs = { .new_sample = video_on_sample };
+        gst_app_sink_set_callbacks(GST_APP_SINK(vsink), &cbs, app, NULL);
+        gst_app_sink_set_emit_signals(GST_APP_SINK(vsink), FALSE);
+        gst_object_unref(vsink);
+    }
+
+    g_object_set(app->video_pipeline, "video-sink", vsink_bin, NULL);
+
+    GstBus *bus = gst_element_get_bus(app->video_pipeline);
+    app->video_bus_watch = gst_bus_add_watch(bus, video_bus_cb, app);
+    gst_object_unref(bus);
+
+    gst_element_set_state(app->video_pipeline, GST_STATE_PLAYING);
+    g_message("Video background playback successfully started.");
+}
+
+/* Stop and clean up the pipeline */
+static void video_stop(App *app) {
+    if (app->video_bus_watch) {
+        g_source_remove(app->video_bus_watch);
+        app->video_bus_watch = 0;
+    }
+    if (app->video_pipeline) {
+        gst_element_set_state(app->video_pipeline, GST_STATE_NULL);
+        g_clear_object(&app->video_pipeline);
+    }
+}
+
+#endif /* HAVE_GST */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 static GtkWidget *ui_home(App *app) {
     GtkWidget *scroll = gtk_scrolled_window_new();
     app->home_scroll = scroll;
@@ -615,6 +972,28 @@ static GtkWidget *ui_home(App *app) {
     GtkWidget *hero = gtk_overlay_new();
     add_class(hero, "hero");
     gtk_widget_set_size_request(hero, -1, 610);
+
+#ifdef HAVE_GST
+    /* ── Video background (GTK4 + GStreamer appsink) ── */
+    app->hero_video_picture = gtk_picture_new();
+    gtk_picture_set_content_fit(GTK_PICTURE(app->hero_video_picture), GTK_CONTENT_FIT_COVER);
+    gtk_picture_set_can_shrink(GTK_PICTURE(app->hero_video_picture), TRUE);
+    /* Show a static fallback image immediately while video loads */
+    {
+        GdkTexture *fallback = gdk_texture_new_from_resource("/vn/ltm/flight/tours_background.jpg");
+        if (fallback) {
+            gtk_picture_set_paintable(GTK_PICTURE(app->hero_video_picture),
+                                      GDK_PAINTABLE(fallback));
+            g_object_unref(fallback);
+        }
+    }
+    gtk_overlay_set_child(GTK_OVERLAY(hero), app->hero_video_picture);
+    /* Start video pipeline (async — first frame will replace fallback) */
+    char *vpath = video_find_path();
+    if (vpath) { video_start(app, vpath); g_free(vpath); }
+    else g_message("video.mp4 not found — static fallback used");
+#else
+    /* ── Slideshow fallback (no GStreamer) ── */
     app->hero_stack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(app->hero_stack),
         ui_animations_enabled() ? GTK_STACK_TRANSITION_TYPE_CROSSFADE
@@ -629,6 +1008,8 @@ static GtkWidget *ui_home(App *app) {
     gtk_stack_set_visible_child_name(GTK_STACK(app->hero_stack), "scene-0");
     g_object_add_weak_pointer(G_OBJECT(app->hero_stack), (gpointer *)&app->hero_stack);
     gtk_overlay_set_child(GTK_OVERLAY(hero), app->hero_stack);
+#endif /* HAVE_GST */
+
     GtkWidget *scrim = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     add_class(scrim, "hero-scrim");
     gtk_overlay_add_overlay(GTK_OVERLAY(hero), scrim);
@@ -674,7 +1055,7 @@ static GtkWidget *ui_home(App *app) {
     GtkWidget *form = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     add_class(form, "search-form");
     gtk_box_append(GTK_BOX(search), form);
-    gtk_box_append(GTK_BOX(form), ui_search_field("Từ", "Chọn khu vực",
+    gtk_box_append(GTK_BOX(form), ui_airport_field("Từ", "Hà Nội (HAN)",
         "/vn/ltm/flight/pin.svg", &app->from));
     GtkWidget *swap = gtk_button_new();
     add_class(swap, "swap-button");
@@ -683,10 +1064,9 @@ static GtkWidget *ui_home(App *app) {
     gtk_widget_set_tooltip_text(swap, "Đổi điểm đi và điểm đến");
     g_signal_connect(swap, "clicked", G_CALLBACK(ui_swap_clicked), app);
     gtk_box_append(GTK_BOX(form), swap);
-    gtk_box_append(GTK_BOX(form), ui_search_field("Đến", "Chọn điểm đến",
+    gtk_box_append(GTK_BOX(form), ui_airport_field("Đến", "TP. Hồ Chí Minh (SGN)",
         "/vn/ltm/flight/pin.svg", &app->to));
-    gtk_box_append(GTK_BOX(form), ui_search_field("Ngày đi", "YYYY-MM-DD",
-        "/vn/ltm/flight/calendar.svg", &app->date));
+    gtk_box_append(GTK_BOX(form), ui_date_field("Ngày đi", &app->date));
     gtk_box_append(GTK_BOX(form), ui_search_submit(app));
     GtkWidget *search_footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     add_class(search_footer, "search-footer");
@@ -697,6 +1077,7 @@ static GtkWidget *ui_home(App *app) {
     gtk_box_append(GTK_BOX(search_footer), ui_button("Xem chuyến gợi ý  →", "text-button",
                                                      G_CALLBACK(list_clicked), app));
     gtk_box_append(GTK_BOX(search), search_footer);
+#ifndef HAVE_GST
     GtkWidget *controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     add_class(controls, "hero-controls");
     gtk_widget_set_halign(controls, GTK_ALIGN_END);
@@ -710,6 +1091,7 @@ static GtkWidget *ui_home(App *app) {
     gtk_box_append(GTK_BOX(controls), app->hero_indicator);
     gtk_box_append(GTK_BOX(controls), next);
     gtk_box_append(GTK_BOX(scrim), controls);
+#endif
     gtk_box_append(GTK_BOX(page), hero);
 
     GtkWidget *section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -718,11 +1100,11 @@ static GtkWidget *ui_home(App *app) {
     gtk_box_append(GTK_BOX(section), ui_label("Dịch vụ cho hành trình thuận tiện hơn", "section-title"));
     GtkWidget *cards = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
     gtk_widget_set_margin_top(cards, 12);
-    gtk_box_append(GTK_BOX(cards), ui_feature("✈", "Tìm chuyến", "Theo điểm đi và ngày bay."));
-    gtk_box_append(GTK_BOX(cards), ui_feature("◉", "Xem giá vé", "Giá từ server cập nhật."));
-    gtk_box_append(GTK_BOX(cards), ui_feature("▣", "Chi tiết", "Thông tin hành trình."));
-    gtk_box_append(GTK_BOX(cards), ui_feature("⌖", "Điểm đến", "Chọn hành trình gợi ý."));
-    gtk_box_append(GTK_BOX(cards), ui_feature("✓", "Kết nối", "Tra cứu qua TCP."));
+    gtk_box_append(GTK_BOX(cards), ui_feature("✦", "Nâng cấp vé"));
+    gtk_box_append(GTK_BOX(cards), ui_feature("✈", "Chọn chỗ ngồi"));
+    gtk_box_append(GTK_BOX(cards), ui_feature("❖", "Mua sắm"));
+    gtk_box_append(GTK_BOX(cards), ui_feature("⌂", "Khách sạn"));
+    gtk_box_append(GTK_BOX(cards), ui_feature("⚙", "Dịch vụ khác"));
     gtk_box_append(GTK_BOX(section), cards);
     gtk_box_append(GTK_BOX(page), section);
 
@@ -888,24 +1270,45 @@ static void activate(GtkApplication *gtk_app, gpointer data) {
     gtk_window_set_default_size(GTK_WINDOW(app->window), 1180, 800);
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     add_class(root, "app-shell");
-    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
     add_class(header, "topbar");
+
     GtkWidget *logo = gtk_picture_new_for_resource("/vn/ltm/flight/logo.png");
     gtk_picture_set_content_fit(GTK_PICTURE(logo), GTK_CONTENT_FIT_CONTAIN);
-    gtk_widget_set_size_request(logo, 144, 56);
+    gtk_widget_set_size_request(logo, 160, 50);
+    gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(header), logo);
-    app->nav = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+
+    app->nav = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 28);
     gtk_widget_set_hexpand(app->nav, TRUE);
     gtk_widget_set_halign(app->nav, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(app->nav, GTK_ALIGN_CENTER);
     ui_nav_add(app->nav, app, "Trang chủ", "home", FALSE);
     ui_nav_add(app->nav, app, "Chuyến bay", "flights", FALSE);
     ui_nav_add(app->nav, app, "Vé của tôi", "tickets", FALSE);
     gtk_box_append(GTK_BOX(header), app->nav);
-    GtkWidget *account = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 3);
-    gtk_box_append(GTK_BOX(account), ui_button("⌕", "header-search",
-                                             G_CALLBACK(ui_header_search_clicked), app));
-    ui_nav_add(account, app, "Đăng nhập", "login", FALSE);
-    ui_nav_add(account, app, "Đăng ký", "signup", FALSE);
+
+    GtkWidget *account = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_valign(account, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(account, GTK_ALIGN_END);
+
+    GtkWidget *search_btn = ui_button("⌕", "header-search",
+                                      G_CALLBACK(ui_header_search_clicked), app);
+    gtk_widget_set_valign(search_btn, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(account), search_btn);
+
+    GtkWidget *login_btn = ui_button("Đăng nhập", "header-btn-login",
+                                     G_CALLBACK(ui_nav_clicked), app);
+    g_object_set_data(G_OBJECT(login_btn), "page", (gpointer)"login");
+    gtk_widget_set_valign(login_btn, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(account), login_btn);
+
+    GtkWidget *signup_btn = ui_button("Đăng ký", "header-btn-signup",
+                                      G_CALLBACK(ui_nav_clicked), app);
+    g_object_set_data(G_OBJECT(signup_btn), "page", (gpointer)"signup");
+    gtk_widget_set_valign(signup_btn, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(account), signup_btn);
+
     gtk_box_append(GTK_BOX(header), account);
     gtk_box_append(GTK_BOX(root), header);
 
@@ -957,11 +1360,16 @@ static void activate(GtkApplication *gtk_app, gpointer data) {
     gtk_box_append(GTK_BOX(root), status_box);
     gtk_window_set_child(GTK_WINDOW(app->window), root);
     gtk_window_present(GTK_WINDOW(app->window));
+#ifndef HAVE_GST
     if (ui_animations_enabled())
         app->hero_timer = g_timeout_add_seconds(8, ui_hero_tick, app);
+#endif
 }
 
 int main(int argc, char **argv) {
+#ifdef HAVE_GST
+    gst_init(&argc, &argv);
+#endif
     const char *host = g_getenv("LTM_SERVER_HOST");
     const char *port_text = g_getenv("LTM_SERVER_PORT");
     if (!host || !*host) host = "127.0.0.1";
@@ -978,6 +1386,10 @@ int main(int argc, char **argv) {
     GtkApplication *gtk_app = gtk_application_new("vn.ltm.flight", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(gtk_app, "activate", G_CALLBACK(activate), &app);
     int rc = g_application_run(G_APPLICATION(gtk_app), argc, argv);
+#ifdef HAVE_GST
+    video_stop(&app);
+    gst_deinit();
+#endif
     if (app.hero_timer) g_source_remove(app.hero_timer);
     Task *stop = g_new0(Task, 1);
     g_async_queue_push(app.queue, stop);
