@@ -36,4 +36,4 @@ Mặc định kết nối `127.0.0.1:9000`. Có thể đặt biến môi trườ
 - `src/net_client.h`: API mạng C tách khỏi GTK.
 - `resources/`: logo, ảnh nền và CSS theo bộ màu của giao diện web; Meson nhúng các tệp này vào ứng dụng.
 
-Worker là nơi duy nhất dùng socket. Kết quả được đưa về GTK main context trước khi sửa widget. Hiện client giữ một kết nối TCP cho nhiều request, xử lý tuần tự; nếu đứt kết nối, request sau sẽ tạo kết nối mới. Phiên đăng nhập gắn với kết nối cũ nên cần đăng nhập lại sau khi mất mạng. Chưa triển khai push bất đồng bộ, giữ ghế, booking hay payment; các phần này phải đồng bộ với server C/Go trước khi mở nút thao tác.
+Worker là nơi duy nhất dùng socket. Kết quả được đưa về GTK main context trước khi sửa widget. Client lưu `session_id` vào thư mục cấu hình người dùng (`ltm-flight/session`), tự gửi `AUTH_RESUME` khi mở app và sau khi TCP nối lại. Thông báo push được chuyển về thanh trạng thái. Đăng xuất xóa phiên trong DB và tệp cục bộ. Cần áp dụng migration `000005_native_auth` trước khi chạy Go server. Tìm kiếm dùng dữ liệu thật từ server; đăng ký yêu cầu SĐT 10 chữ số, mật khẩu từ 8 ký tự có chữ và số.

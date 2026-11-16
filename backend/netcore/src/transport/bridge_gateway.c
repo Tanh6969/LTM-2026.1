@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <unistd.h>
 
 typedef struct { int client_fd; char bridge_ip[64]; int bridge_port; uint32_t conn_id; } client_arg;
@@ -23,14 +24,32 @@ static void *serve_client(void *opaque){client_arg *a=opaque;int cfd=a->client_f
     int bfd=bridge_connect(bridge_ip,bridge_port);if(bfd<0){send_client_error(cfd,0,0,503,"Go bridge unavailable");close(cfd);return NULL;}
     bridge_header meta={0};meta.kind=BRIDGE_CONN_OPEN;meta.conn_id=cid;const char *open_json="{\"remote\":\"tcp-client\",\"transport\":\"tcp\"}";
     if(bridge_send_frame(bfd,&meta,open_json,strlen(open_json))<0){close(bfd);close(cfd);return NULL;}
-    for(;;){echo_frame request;int rc=echo_recv_frame(cfd,&request,60000);if(rc==1)break;if(rc==-2)continue;if(rc<0)break;
-        if(request.header.type==ECHO_TYPE_PING){echo_header pong={.type=ECHO_TYPE_PONG,.seq=request.header.seq};(void)echo_send_frame(cfd,&pong,NULL);echo_frame_free(&request);continue;}
-        if(request.header.type!=ECHO_TYPE_REQUEST){echo_frame_free(&request);break;}
-        bridge_header h={0};h.kind=BRIDGE_REQUEST;h.type=request.header.app_type;h.conn_id=cid;h.req_id=request.header.req_id;h.length=request.header.length;
-        if(bridge_send_frame(bfd,&h,(const char*)request.payload,request.header.length)<0){send_client_error(cfd,request.header.seq,request.header.req_id,503,"bridge write failed");echo_frame_free(&request);break;}
-        bridge_frame response;rc=bridge_recv_frame(bfd,&response);if(rc!=0){send_client_error(cfd,request.header.seq,request.header.req_id,503,"bridge response unavailable");echo_frame_free(&request);break;}
-        if(response.hdr.kind==BRIDGE_RESPONSE){echo_header out={.type=ECHO_TYPE_RESPONSE,.app_type=response.hdr.status,.seq=request.header.seq,.req_id=response.hdr.req_id,.length=response.hdr.length};(void)echo_send_frame(cfd,&out,response.payload);}
-        bridge_frame_free(&response);echo_frame_free(&request);
+    uint64_t pending_id=0;uint32_t pending_seq=0;
+    for(;;){
+        fd_set ready;FD_ZERO(&ready);FD_SET(cfd,&ready);FD_SET(bfd,&ready);
+        if(select((cfd>bfd?cfd:bfd)+1,&ready,NULL,NULL,NULL)<=0)break;
+        if(FD_ISSET(cfd,&ready)){
+            echo_frame request;int rc=echo_recv_frame(cfd,&request,60000);if(rc!=0)break;
+            if(request.header.type==ECHO_TYPE_PING){echo_header pong={.type=ECHO_TYPE_PONG,.seq=request.header.seq};(void)echo_send_frame(cfd,&pong,NULL);echo_frame_free(&request);continue;}
+            if(request.header.type!=ECHO_TYPE_REQUEST || pending_id){echo_frame_free(&request);break;}
+            bridge_header h={0};h.kind=BRIDGE_REQUEST;h.type=request.header.app_type;h.conn_id=cid;h.req_id=request.header.req_id;h.length=request.header.length;
+            pending_id=request.header.req_id;pending_seq=request.header.seq;
+            rc=bridge_send_frame(bfd,&h,(const char*)request.payload,request.header.length);
+            echo_frame_free(&request);
+            if(rc<0)break;
+        }
+        if(FD_ISSET(bfd,&ready)){
+            bridge_frame response;if(bridge_recv_frame(bfd,&response)!=0)break;
+            if(response.hdr.kind==BRIDGE_RESPONSE && response.hdr.req_id==pending_id){
+                echo_header out={.type=ECHO_TYPE_RESPONSE,.app_type=response.hdr.status,.seq=pending_seq,.req_id=response.hdr.req_id,.length=response.hdr.length};
+                if(echo_send_frame(cfd,&out,response.payload)<0){bridge_frame_free(&response);break;}
+                pending_id=0;
+            }else if(response.hdr.kind==BRIDGE_PUSH){
+                echo_header out={.type=ECHO_TYPE_PUSH,.app_type=response.hdr.type,.length=response.hdr.length};
+                if(echo_send_frame(cfd,&out,response.payload)<0){bridge_frame_free(&response);break;}
+            }else if(response.hdr.kind==BRIDGE_KICK){bridge_frame_free(&response);break;}
+            bridge_frame_free(&response);
+        }
     }
     bridge_header close_h={0};close_h.kind=BRIDGE_CONN_CLOSE;close_h.conn_id=cid;(void)bridge_send_frame(bfd,&close_h,NULL,0);shutdown(bfd,SHUT_RDWR);close(bfd);shutdown(cfd,SHUT_RDWR);close(cfd);return NULL;
 }

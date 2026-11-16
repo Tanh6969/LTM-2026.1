@@ -86,6 +86,24 @@ Message dự kiến cho từng chức năng (chọn ghế, đặt vé, thanh to�
 
 ## 5. Mã kết quả (`status` trong `RESPONSE`)
 
+### Native GTK4 hiện hành
+
+Khi Go server khởi chạy với `NativeStore`, các lệnh xác thực dùng phiên DB thay cho `AUTH_TOKEN` cũ. Cần áp dụng migration `000005_native_auth`.
+
+| Mã | Tên | Payload | Kết quả |
+|---:|---|---|---|
+| `0x0101` | `AUTH_REGISTER` | `{first_name,last_name,email,password,phone_number}` | `{user}`; lỗi trùng email `EMAIL_EXISTS` |
+| `0x0102` | `AUTH_LOGIN` | `{email,password}` | `{sessionId,user}`; khóa sau 5 lần sai trong 15 phút |
+| `0x0103` | `AUTH_LOGOUT` | `{}` | Xóa phiên hiện tại |
+| `0x0105` | `AUTH_RESUME` | `{sessionId}` | `{sessionId,user}` |
+| `0x0106` | `AUTH_PROFILE` | `{}` | Hồ sơ cá nhân |
+| `0x0107` | `AUTH_UPDATE` | Các trường hồ sơ | Hồ sơ đã cập nhật |
+| `0x0108` | `AUTH_CHANGE_PASSWORD` | `{oldPassword,newPassword}` | Hủy các phiên khác |
+| `0x0201` | `FLIGHT_SEARCH` | `{departureCity,arrivalCity,flightDate,class,adults,children,infants}` | `{data:[...]}` |
+| `0x0204` | `AIRPORT_LIST` | `{}` | `{data:[{city,airport}]}` |
+
+`sessionId` là 32 byte ngẫu nhiên mã hóa hex. Hạng ghế: `economy`, `business`, `firstClass`. `flightDate` dùng `YYYY-MM-DD`. App GTK lưu phiên trong thư mục cấu hình người dùng và gửi `AUTH_RESUME` sau khi nối lại TCP. Frame push công khai dùng kind `5`.
+
 | Mã | Ý nghĩa | Ví dụ |
 |---:|---|---|
 | 0 | Thành công | |

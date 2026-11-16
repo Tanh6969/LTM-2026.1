@@ -67,9 +67,15 @@ enum bridge_msg_type {
     MSG_AUTH_LOGIN     = 0x0102,
     MSG_AUTH_LOGOUT    = 0x0103,
     MSG_AUTH_TOKEN     = 0x0104,
+    MSG_AUTH_RESUME    = 0x0105,
+    MSG_AUTH_PROFILE   = 0x0106,
+    MSG_AUTH_UPDATE    = 0x0107,
+    MSG_AUTH_PASSWORD  = 0x0108,
     MSG_FLIGHT_SEARCH  = 0x0201,
     MSG_FLIGHT_GET     = 0x0202,
-    MSG_FLIGHT_LIST    = 0x0203
+    MSG_FLIGHT_LIST    = 0x0203,
+    MSG_AIRPORT_LIST   = 0x0204,
+    MSG_BOOKING_HISTORY = 0x0502
 };
 
 /* Header da giai ma (dang so nguyen cua may, khong con la byte mang) */

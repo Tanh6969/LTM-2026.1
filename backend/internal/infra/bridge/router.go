@@ -33,6 +33,7 @@ type route struct {
 // nen khong can khoa.
 type Router struct {
 	routes map[MsgType]route
+	ValidateSession func(context.Context, *Session) bool
 }
 
 func NewRouter() *Router {

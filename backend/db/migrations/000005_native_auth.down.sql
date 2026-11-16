@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS LoginAttempts;
+DROP TABLE IF EXISTS Sessions;

@@ -45,6 +45,7 @@ headerbar { background: white; }
 .text-button { background: transparent; border: 0; box-shadow: none; color: #d34833; font-size: 13px; font-weight: 700; padding: 5px; }
 .text-button:hover { color: #a53b2b; }
 .field-caption { color: #64748b; font-size: 12px; font-weight: 700; }
+.form-error { color: #b42318; font-size: 13px; font-weight: 600; padding: 4px 0; }
 .form-entry { background: #ffffff; border: 1px solid #dce3eb; border-radius: 8px; color: #182436; min-height: 42px; padding: 5px 10px; }
 .form-entry:focus { border-color: #e8604c; }
 .section { padding: 38px 48px; }
@@ -55,12 +56,12 @@ headerbar { background: white; }
 .feature-card { background: white; border: 1px solid #edf2f7; border-radius: 14px; padding: 24px 14px; box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05); }
 .feature-card:hover { background: white; border-color: #cbd5e1; box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08); }
 .content-card, .auth-card { background: white; border: 1px solid #e9edf2; border-radius: 14px; padding: 25px; box-shadow: 0 4px 18px rgba(20, 40, 60, 0.06); }
-.feature-icon-wrapper { background: #fdf4f2; border-radius: 32px; min-width: 64px; min-height: 64px; max-width: 64px; max-height: 64px; }
+.feature-icon-wrapper { background: #fdf4f2; border-radius: 32px; min-width: 64px; min-height: 64px; }
 .feature-icon-symbol { font-size: 24px; font-weight: 700; color: #e8604c; }
 .feature-title { color: #1e293b; font-size: 15px; font-weight: 700; }
 .search-icon-btn { background: transparent; border: 0; box-shadow: none; padding: 0; margin: 0; min-width: 32px; }
 .search-icon-btn:hover { opacity: 0.8; }
-.airport-popover-item { background: transparent; border: 0; box-shadow: none; color: #182436; font-size: 14px; font-weight: 600; padding: 8px 14px; border-radius: 6px; text-align: left; }
+.airport-popover-item { background: transparent; border: 0; box-shadow: none; color: #182436; font-size: 14px; font-weight: 600; padding: 8px 14px; border-radius: 6px; }
 .airport-popover-item:hover { background: #fff2ed; color: #e8604c; }
 .destination-card { background: #1d2939; border: 0; border-radius: 15px; padding: 0; box-shadow: 0 8px 22px rgba(20, 40, 60, 0.14); }
 .destination-card:hover { box-shadow: 0 14px 32px rgba(232, 96, 76, 0.3); }

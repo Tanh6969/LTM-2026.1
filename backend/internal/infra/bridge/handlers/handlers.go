@@ -25,6 +25,7 @@ type Deps struct {
 	SearchFlights  flight.ISearchFlightsUseCase
 	ListFlights    flight.IListFlightsUseCase
 	TokenMaker     token.Maker
+	Native         *NativeStore
 }
 
 // Register dang ky moi handler len router.

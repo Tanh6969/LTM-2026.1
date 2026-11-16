@@ -14,6 +14,7 @@ type Session struct {
 	mu     sync.RWMutex
 	userID int64
 	role   string
+	sessionID string
 }
 
 // Identity tra ve (userID, role); userID = 0 nghia la chua dang nhap (khach vang lai).
@@ -32,6 +33,18 @@ func (s *Session) SetIdentity(userID int64, role string) {
 
 // ClearIdentity quay ve khach vang lai (dang xuat).
 func (s *Session) ClearIdentity() { s.SetIdentity(0, "") }
+
+func (s *Session) SetSessionID(id string) {
+	s.mu.Lock()
+	s.sessionID = id
+	s.mu.Unlock()
+}
+
+func (s *Session) SessionID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessionID
+}
 
 func (s *Session) IsAuthenticated() bool {
 	id, _ := s.Identity()

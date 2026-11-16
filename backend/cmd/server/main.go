@@ -76,11 +76,17 @@ func main() {
 		SearchFlights:  flight.NewSearchFlightsUseCase(flightRepo),
 		ListFlights:    flight.NewlistFlightsUseCase(flightRepo),
 		TokenMaker:     tokenMaker,
+		Native:         &handlers.NativeStore{Pool: pool},
 	}
 
 	// --- Server socket ---
 	router := bridge.NewRouter()
 	handlers.Register(router, deps)
+	router.ValidateSession = func(ctx context.Context, s *bridge.Session) bool {
+		p, err := deps.Native.Resume(ctx, s.SessionID())
+		uid, role := s.Identity()
+		return err == nil && p.ID == uid && p.Role == role
+	}
 
 	logWriter, closeLog := openFrameLog(cfg.BridgeLogPath)
 	defer closeLog()

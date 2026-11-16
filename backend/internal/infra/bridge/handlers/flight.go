@@ -15,6 +15,7 @@ const (
 )
 
 func registerFlight(r *bridge.Router, d Deps) {
+	if d.Native != nil { registerNativeFlight(r,d.Native) } else {
 	// FLIGHT_SEARCH: tim chuyen theo diem di/den va ngay di. Khach vang lai cung tim duoc.
 	r.Handle(bridge.MsgFlightSearch, bridge.AuthNone, func(ctx context.Context, s *bridge.Session, raw json.RawMessage) (any, error) {
 		var req struct {
@@ -41,6 +42,7 @@ func registerFlight(r *bridge.Router, d Deps) {
 		return map[string]any{"message": "Flights retrieved successfully.", "data": flights}, nil
 	})
 
+	}
 	// FLIGHT_GET: chi tiet mot chuyen bay theo id.
 	r.Handle(bridge.MsgFlightGet, bridge.AuthNone, func(ctx context.Context, s *bridge.Session, raw json.RawMessage) (any, error) {
 		var req struct {

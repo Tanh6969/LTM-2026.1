@@ -16,11 +16,17 @@ const (
 	MsgAuthLogin    MsgType = 0x0102
 	MsgAuthLogout   MsgType = 0x0103
 	MsgAuthToken    MsgType = 0x0104 // gan lai danh tinh cho ket noi moi bang token da co
+	MsgAuthResume   MsgType = 0x0105
+	MsgAuthProfile  MsgType = 0x0106
+	MsgAuthUpdate   MsgType = 0x0107
+	MsgAuthPassword MsgType = 0x0108
 
 	// Chuyen bay (giai doan 5)
 	MsgFlightSearch MsgType = 0x0201
 	MsgFlightGet    MsgType = 0x0202
 	MsgFlightList   MsgType = 0x0203
+	MsgAirportList  MsgType = 0x0204
+	MsgBookingHistory MsgType = 0x0502
 )
 
 var msgNames = map[MsgType]string{
@@ -29,9 +35,15 @@ var msgNames = map[MsgType]string{
 	MsgAuthLogin:    "AUTH_LOGIN",
 	MsgAuthLogout:   "AUTH_LOGOUT",
 	MsgAuthToken:    "AUTH_TOKEN",
+	MsgAuthResume:   "AUTH_RESUME",
+	MsgAuthProfile:  "AUTH_PROFILE",
+	MsgAuthUpdate:   "AUTH_UPDATE",
+	MsgAuthPassword: "AUTH_CHANGE_PASSWORD",
 	MsgFlightSearch: "FLIGHT_SEARCH",
 	MsgFlightGet:    "FLIGHT_GET",
 	MsgFlightList:   "FLIGHT_LIST",
+	MsgAirportList:  "AIRPORT_LIST",
+	MsgBookingHistory: "BOOKING_HISTORY",
 }
 
 // String tra ten de doc cho log; loai chua biet in dang 0xNNNN.

@@ -13,7 +13,8 @@ enum echo_type {
     ECHO_TYPE_REQUEST = 1,
     ECHO_TYPE_RESPONSE = 2,
     ECHO_TYPE_PING = 3,
-    ECHO_TYPE_PONG = 4
+    ECHO_TYPE_PONG = 4,
+    ECHO_TYPE_PUSH = 5
 };
 
 enum echo_flag {

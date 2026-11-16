@@ -20,6 +20,7 @@ const (
 )
 
 func registerAuth(r *bridge.Router, d Deps) {
+	if d.Native != nil { registerNativeAuth(r,d.Native); return }
 	// AUTH_REGISTER: dang ky tai khoan khach hang. Khach chua dang nhap van goi duoc.
 	r.Handle(bridge.MsgAuthRegister, bridge.AuthNone, func(ctx context.Context, s *bridge.Session, raw json.RawMessage) (any, error) {
 		var req dto.CreateCustomerRequest

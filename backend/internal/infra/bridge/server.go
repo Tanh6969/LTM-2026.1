@@ -158,6 +158,14 @@ func (s *Server) PushToUser(userID int64, t MsgType, payload any) int {
 	for _, b := range s.snapshotBridges() {
 		for _, sess := range b.snapshotSessions() {
 			if id, _ := sess.Identity(); id == userID {
+				validCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				valid := s.router.ValidateSession == nil || s.router.ValidateSession(validCtx, sess)
+				cancel()
+				if !valid {
+					sess.ClearIdentity()
+					sess.SetSessionID("")
+					continue
+				}
 				f := &Frame{Header: Header{Kind: KindPush, Type: t, ConnID: sess.ConnID}, Payload: data}
 				if b.send(f) == nil {
 					b.logOut(sess, f, "")
@@ -297,10 +305,18 @@ func (b *bridgeConn) handleRequest(ctx context.Context, f *Frame) {
 
 	rt, ok := b.srv.router.routes[f.Type]
 	switch {
+	case (uint16(f.Type)>>8 == 0x07 || uint16(f.Type)>>8 == 0x08) && !sess.IsAdmin():
+		failFrame(resp, StatusForbidden, "FORBIDDEN")
+	case f.Type == MsgBookingHistory && !sess.IsAuthenticated():
+		failFrame(resp, StatusUnauthorized, "authentication required")
 	case !ok:
 		failFrame(resp, StatusUnknownType, "unknown message type")
 	case rt.auth >= AuthUser && !sess.IsAuthenticated():
 		failFrame(resp, StatusUnauthorized, "authentication required")
+	case rt.auth >= AuthUser && b.srv.router.ValidateSession != nil && !b.srv.router.ValidateSession(ctx,sess):
+		sess.ClearIdentity()
+		sess.SetSessionID("")
+		failFrame(resp, StatusUnauthorized, "INVALID_SESSION")
 	case rt.auth == AuthAdmin && !sess.IsAdmin():
 		failFrame(resp, StatusForbidden, "admin privileges required")
 	default:

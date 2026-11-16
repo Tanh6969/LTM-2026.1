@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <glib.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -40,6 +42,12 @@ struct NetClient {
     socket_t fd;
     uint32_t seq;
     uint64_t next_id;
+    char session_id[65];
+    int must_resume;
+    void (*push_handler)(const char *, void *);
+    void *push_data;
+    time_t last_reconnect;
+    GMutex session_mu;
 #ifdef _WIN32
     int winsock_ready;
 #endif
@@ -75,6 +83,9 @@ static uint32_t crc32_update(uint32_t crc, const unsigned char *data, size_t len
 
 static void disconnect_client(NetClient *c) {
     if (c->fd != BAD_SOCKET) { close_socket(c->fd); c->fd = BAD_SOCKET; }
+    g_mutex_lock(&c->session_mu);
+    if (c->session_id[0]) c->must_resume = 1;
+    g_mutex_unlock(&c->session_mu);
 }
 
 static int connect_client(NetClient *c) {
@@ -164,6 +175,7 @@ NetClient *net_client_new(const char *host, uint16_t port) {
     if (!c) return NULL;
     c->host = copy_text(host); c->port = port; c->fd = BAD_SOCKET;
     c->seq = 1; c->next_id = 1;
+    g_mutex_init(&c->session_mu);
 #ifdef _WIN32
     WSADATA data;
     c->winsock_ready = WSAStartup(MAKEWORD(2, 2), &data) == 0;
@@ -179,6 +191,7 @@ void net_client_free(NetClient *c) {
 #ifdef _WIN32
     if (c->winsock_ready) WSACleanup();
 #endif
+    g_mutex_clear(&c->session_mu);
     free(c->host); free(c);
 }
 
@@ -189,6 +202,42 @@ NetReply net_client_request(NetClient *c, uint16_t type, const char *json) {
     }
     if (connect_client(c) != 0) {
         reply.error = copy_text("Không kết nối được TCP server."); return reply;
+    }
+    char saved_session[65]; int must_resume;
+    g_mutex_lock(&c->session_mu);
+    memcpy(saved_session, c->session_id, sizeof saved_session);
+    must_resume = c->must_resume;
+    g_mutex_unlock(&c->session_mu);
+    if (must_resume && saved_session[0] && type != 0x0105) {
+        char payload[96];
+        snprintf(payload, sizeof payload, "{\"sessionId\":\"%s\"}", saved_session);
+        uint64_t resume_id = c->next_id++;
+        if (send_frame(c, KIND_REQUEST, 0x0105, resume_id, c->seq++, payload, strlen(payload)) != 0)
+            goto network_error;
+        for (;;) {
+            uint16_t kind, status; uint64_t got_id; uint32_t seq; char *body = NULL;
+            if (read_frame(c, &kind, &status, &got_id, &seq, &body) != 0) goto network_error;
+            if (kind == KIND_PING) {
+                int rc = send_frame(c, KIND_PONG, 0, 0, seq, NULL, 0);
+                free(body); if (rc != 0) goto network_error; continue;
+            }
+            if (kind == 5u) {
+                if (c->push_handler) c->push_handler(body, c->push_data);
+                free(body); continue;
+            }
+            if (kind == KIND_RESPONSE && got_id == resume_id) {
+                if (status != 0) {
+                    g_mutex_lock(&c->session_mu);
+                    c->session_id[0] = 0; c->must_resume = 0;
+                    g_mutex_unlock(&c->session_mu);
+                    reply.status = status; reply.body = body; return reply;
+                }
+                free(body);
+                g_mutex_lock(&c->session_mu); c->must_resume = 0; g_mutex_unlock(&c->session_mu);
+                break;
+            }
+            free(body);
+        }
     }
     uint64_t id = c->next_id++;
     if (send_frame(c, KIND_REQUEST, type, id, c->seq++, json, strlen(json)) != 0) goto network_error;
@@ -204,7 +253,15 @@ NetReply net_client_request(NetClient *c, uint16_t type, const char *json) {
             if (rc != 0) goto network_error;
             continue;
         }
+        if (kind == 5u) {
+            if (c->push_handler) c->push_handler(body, c->push_data);
+            free(body);
+            continue;
+        }
         if (kind == KIND_RESPONSE && response_id == id) {
+            if (type == 0x0105 && response_type == 0) {
+                g_mutex_lock(&c->session_mu); c->must_resume = 0; g_mutex_unlock(&c->session_mu);
+            }
             reply.status = response_type;
             reply.body = body;
             return reply;
@@ -215,6 +272,56 @@ network_error:
     disconnect_client(c);
     reply.error = copy_text("Kết nối bị ngắt hoặc phản hồi TCP không hợp lệ.");
     return reply;
+}
+
+void net_client_set_push_handler(NetClient *c, void (*handler)(const char *, void *), void *data) {
+    if (!c) return;
+    c->push_handler = handler;
+    c->push_data = data;
+}
+
+void net_client_poll(NetClient *c) {
+    if (!c) return;
+    if (c->fd == BAD_SOCKET) {
+        time_t now = time(NULL);
+        char saved_session[65];
+        g_mutex_lock(&c->session_mu);
+        memcpy(saved_session, c->session_id, sizeof saved_session);
+        g_mutex_unlock(&c->session_mu);
+        if (saved_session[0] && now - c->last_reconnect >= 5) {
+            c->last_reconnect = now;
+            char payload[96];
+            snprintf(payload, sizeof payload, "{\"sessionId\":\"%s\"}", saved_session);
+            NetReply reply = net_client_request(c, 0x0105, payload);
+            if (reply.status == 401) {
+                g_mutex_lock(&c->session_mu); c->session_id[0] = 0; c->must_resume = 0; g_mutex_unlock(&c->session_mu);
+            }
+            net_reply_clear(&reply);
+        }
+        return;
+    }
+    fd_set readfds;
+    FD_ZERO(&readfds); FD_SET(c->fd, &readfds);
+    struct timeval timeout = {.tv_sec = 0, .tv_usec = 0};
+    int ready = select((int)c->fd + 1, &readfds, NULL, NULL, &timeout);
+    if (ready <= 0) return;
+    uint16_t kind, type; uint64_t id; uint32_t seq; char *body = NULL;
+    if (read_frame(c, &kind, &type, &id, &seq, &body) != 0) { disconnect_client(c); return; }
+    if (kind == KIND_PING) {
+        if (send_frame(c, KIND_PONG, 0, 0, seq, NULL, 0) != 0) disconnect_client(c);
+    } else if (kind == 5u && c->push_handler) {
+        c->push_handler(body, c->push_data);
+    }
+    free(body);
+}
+
+void net_client_set_session(NetClient *c, const char *session_id) {
+    if (!c) return;
+    g_mutex_lock(&c->session_mu);
+    if (!session_id || strlen(session_id) != 64) { c->session_id[0] = 0; c->must_resume = 0; g_mutex_unlock(&c->session_mu); return; }
+    memcpy(c->session_id, session_id, 65);
+    c->must_resume = 1;
+    g_mutex_unlock(&c->session_mu);
 }
 
 void net_reply_clear(NetReply *reply) {

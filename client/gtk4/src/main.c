@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <glib/gstdio.h>
 
 #include "net_client.h"
 
@@ -13,8 +14,9 @@
 #endif
 
 enum { MSG_HEALTH = 0x0001, MSG_REGISTER = 0x0101, MSG_LOGIN = 0x0102,
-       MSG_LOGOUT = 0x0103, MSG_SEARCH = 0x0201, MSG_FLIGHT_GET = 0x0202,
-       MSG_FLIGHT_LIST = 0x0203 };
+       MSG_LOGOUT = 0x0103, MSG_RESUME = 0x0105, MSG_PROFILE = 0x0106,
+       MSG_UPDATE = 0x0107, MSG_PASSWORD = 0x0108, MSG_SEARCH = 0x0201,
+       MSG_FLIGHT_GET = 0x0202, MSG_FLIGHT_LIST = 0x0203, MSG_AIRPORTS = 0x0204 };
 
 typedef struct App App;
 typedef struct Task Task;
@@ -23,11 +25,19 @@ typedef void (*ReplyHandler)(App *, const NetReply *);
 struct App {
     GtkWidget *window, *stack, *nav, *status, *welcome, *results, *detail;
     GtkWidget *hero_stack, *hero_indicator, *home_scroll;
+    GtkWidget *header_login, *header_signup, *header_logout, *header_user;
+    GtkWidget *login_error, *signup_error, *account_error, *flight_error;
     guint hero_timer;
     guint hero_index;
     GtkWidget *login_email, *login_password;
-    GtkWidget *reg_first, *reg_last, *reg_email, *reg_password;
-    GtkWidget *from, *to, *date;
+    GtkWidget *reg_first, *reg_last, *reg_email, *reg_password, *reg_phone;
+    GtkWidget *from, *to, *date, *adults, *children, *infants, *flight_class;
+    GtkWidget *profile_first, *profile_last, *profile_phone, *profile_birth;
+    GtkWidget *profile_gender, *profile_id, *profile_address;
+    GtkWidget *password_old, *password_new;
+    GtkWidget *airport_from_list, *airport_to_list;
+    GtkWidget *airport_from_empty, *airport_to_empty;
+    char *session_id;
     GAsyncQueue *queue;
     NetClient *network;
     GThread *worker;
@@ -62,6 +72,37 @@ static void set_status(App *app, const char *message) {
     gtk_label_set_text(GTK_LABEL(app->status), message);
 }
 
+static void set_inline_error(GtkWidget *label, const char *message) {
+    if (!label) return;
+    gtk_label_set_text(GTK_LABEL(label), message ? message : "");
+    gtk_widget_set_visible(label, message && *message);
+}
+
+static void set_auth_header(App *app) {
+    if (app->header_login) gtk_widget_set_visible(app->header_login, !app->logged_in);
+    if (app->header_signup) gtk_widget_set_visible(app->header_signup, !app->logged_in);
+    if (app->header_logout) gtk_widget_set_visible(app->header_logout, app->logged_in);
+    if (app->header_user) gtk_widget_set_visible(app->header_user, app->logged_in);
+}
+
+static char *session_path(void) {
+    char *dir = g_build_filename(g_get_user_config_dir(), "ltm-flight", NULL);
+    g_mkdir_with_parents(dir, 0700);
+    char *path = g_build_filename(dir, "session", NULL);
+    g_free(dir);
+    return path;
+}
+
+static void save_session(App *app, const char *id) {
+    g_free(app->session_id);
+    app->session_id = id && strlen(id) == 64 ? g_strdup(id) : NULL;
+    net_client_set_session(app->network, app->session_id);
+    char *path = session_path();
+    if (app->session_id) g_file_set_contents(path, app->session_id, -1, NULL);
+    else g_remove(path);
+    g_free(path);
+}
+
 static const char *json_string(JsonObject *obj, const char *name) {
     if (!obj || !json_object_has_member(obj, name)) return "";
     JsonNode *node = json_object_get_member(obj, name);
@@ -88,17 +129,28 @@ static char *response_error(const NetReply *reply) {
     JsonParser *parser = NULL;
     JsonObject *obj = parse_object(reply->body, &parser);
     const char *message = obj ? json_string(obj, "message") : "";
-    char *text = *message ? g_strdup(message) : g_strdup_printf("Server trả lỗi %u.", reply->status);
+    const char *translated = message;
+    if (g_strcmp0(message,"INVALID_REGISTRATION")==0) translated="Thông tin chưa hợp lệ. Kiểm tra email, mật khẩu (ít nhất 8 ký tự gồm chữ và số) và SĐT 10 chữ số.";
+    else if (g_strcmp0(message,"EMAIL_EXISTS")==0) translated="Email này đã được đăng ký.";
+    else if (g_strcmp0(message,"INVALID_CREDENTIALS")==0) translated="Email hoặc mật khẩu không đúng.";
+    else if (g_strcmp0(message,"ACCOUNT_TEMP_LOCKED")==0) translated="Tài khoản tạm khóa do đăng nhập sai quá 5 lần. Thử lại sau 15 phút.";
+    else if (g_strcmp0(message,"INVALID_OLD_PASSWORD")==0) translated="Mật khẩu hiện tại không đúng.";
+    else if (g_strcmp0(message,"INVALID_PASSWORD")==0) translated="Mật khẩu mới cần ít nhất 8 ký tự, gồm chữ cái và chữ số.";
+    else if (g_strcmp0(message,"INVALID_PROFILE")==0) translated="Số điện thoại cần đúng 10 chữ số; hãy kiểm tra giới tính đã chọn.";
+    else if (g_strcmp0(message,"INVALID_BIRTH_DATE")==0) translated="Ngày sinh phải theo định dạng YYYY-MM-DD.";
+    else if (g_strcmp0(message,"INVALID_SESSION")==0) translated="Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.";
+    char *text = *translated ? g_strdup(translated) : g_strdup_printf("Server trả lỗi %u.", reply->status);
     if (parser) g_object_unref(parser);
     return text;
 }
 
 static gboolean deliver_result(gpointer data) {
     Task *task = data;
-    if (task->reply.error && task->app->logged_in) {
+    if (task->reply.status == 401 && task->app->logged_in &&
+        task->type != MSG_LOGIN && task->type != MSG_REGISTER) {
+        save_session(task->app, NULL);
         task->app->logged_in = FALSE;
-        gtk_label_set_text(GTK_LABEL(task->app->welcome),
-                           "Kết nối đã mất. Hãy đăng nhập lại sau khi kết nối.");
+        set_auth_header(task->app);
     }
     task->handler(task->app, &task->reply);
     net_reply_clear(&task->reply);
@@ -107,11 +159,32 @@ static gboolean deliver_result(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+typedef struct { App *app; char *body; } PushNotice;
+
+static gboolean show_push_notice(gpointer data) {
+    PushNotice *notice = data;
+    JsonParser *parser = NULL;
+    JsonObject *obj = parse_object(notice->body, &parser);
+    const char *message = json_string(obj, "message");
+    const char *title = json_string(obj, "title");
+    set_status(notice->app, *message ? message : (*title ? title : "Có thông báo mới."));
+    if (parser) g_object_unref(parser);
+    g_free(notice->body); g_free(notice);
+    return G_SOURCE_REMOVE;
+}
+
+static void push_received(const char *body, void *data) {
+    PushNotice *notice = g_new0(PushNotice, 1);
+    notice->app = data;
+    notice->body = g_strdup(body);
+    g_main_context_invoke(NULL, show_push_notice, notice);
+}
+
 static gpointer network_worker(gpointer data) {
     App *app = data;
     for (;;) {
-        Task *task = g_async_queue_pop(app->queue);
-        if (!task) continue;
+        Task *task = g_async_queue_timeout_pop(app->queue, 100000);
+        if (!task) { net_client_poll(app->network); continue; }
         if (!task->handler) { g_free(task); break; }
         task->reply = net_client_request(app->network, task->type, task->json);
         g_main_context_invoke(NULL, deliver_result, task);
@@ -174,8 +247,10 @@ static void health_clicked(GtkButton *button, gpointer data) {
 static void show_login(App *app, const NetReply *reply) {
     if (reply->error || reply->status) {
         char *message = response_error(reply);
+        set_inline_error(app->login_error, message);
         set_status(app, message); g_free(message); return;
     }
+    set_inline_error(app->login_error, NULL);
     JsonParser *parser = NULL;
     JsonObject *obj = parse_object(reply->body, &parser);
     if (!obj || !json_object_has_member(obj, "user")) {
@@ -185,15 +260,45 @@ static void show_login(App *app, const NetReply *reply) {
     }
     JsonObject *user = obj && json_object_has_member(obj, "user")
         ? json_object_get_object_member(obj, "user") : NULL;
+    const char *session = json_string(obj, "sessionId");
+    if (*session) save_session(app, session);
     const char *name = json_string(user, "name");
     char *welcome = g_strdup_printf("Xin chào %s", *name ? name : "bạn");
     gtk_label_set_text(GTK_LABEL(app->welcome), welcome);
+    if (app->header_user) gtk_label_set_text(GTK_LABEL(app->header_user), welcome);
     g_free(welcome);
     gtk_editable_set_text(GTK_EDITABLE(app->login_password), "");
     app->logged_in = TRUE;
+    set_auth_header(app);
     set_status(app, "Đăng nhập thành công.");
     show_page(app, "home");
     if (parser) g_object_unref(parser);
+}
+
+static void show_resume(App *app, const NetReply *reply) {
+    if (reply->error) { set_status(app, "Không thể khôi phục phiên khi mất kết nối."); return; }
+    if (reply->status) { save_session(app, NULL); app->logged_in = FALSE; set_auth_header(app); return; }
+    show_login(app, reply);
+}
+
+static void show_logout(App *app, const NetReply *reply) {
+    if (reply->error || reply->status) {
+        char *message = response_error(reply); set_status(app, message); g_free(message); return;
+    }
+    save_session(app, NULL);
+    app->logged_in = FALSE;
+    set_auth_header(app);
+    gtk_label_set_text(GTK_LABEL(app->welcome), "Chào mừng bạn đến với LTM Flight");
+    if (app->header_user) gtk_label_set_text(GTK_LABEL(app->header_user), "");
+    set_status(app, "Đã đăng xuất.");
+    show_page(app, "home");
+}
+
+static void logout_clicked(GtkButton *button, gpointer data) {
+    (void)button;
+    App *app = data;
+    if (!app->logged_in) { show_page(app, "login"); return; }
+    request(app, MSG_LOGOUT, g_strdup("{}"), show_logout);
 }
 
 static void login_clicked(GtkButton *button, gpointer data) {
@@ -201,7 +306,15 @@ static void login_clicked(GtkButton *button, gpointer data) {
     App *app = data;
     const char *email = gtk_editable_get_text(GTK_EDITABLE(app->login_email));
     const char *password = gtk_editable_get_text(GTK_EDITABLE(app->login_password));
-    if (!*email || !*password) { set_status(app, "Nhập email và mật khẩu."); return; }
+    if (!*email || !*password) {
+        set_inline_error(app->login_error, "Nhập email và mật khẩu để đăng nhập.");
+        set_status(app, "Đăng nhập chưa gửi: còn thiếu email hoặc mật khẩu."); return;
+    }
+    if (!g_regex_match_simple("^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$", email, 0, 0)) {
+        set_inline_error(app->login_error, "Email chưa đúng định dạng, ví dụ ten@email.com.");
+        set_status(app, "Email chưa đúng định dạng."); return;
+    }
+    set_inline_error(app->login_error, NULL);
     JsonBuilder *builder = object_builder();
     add_string(builder, "email", email); add_string(builder, "password", password);
     json_builder_end_object(builder);
@@ -212,8 +325,10 @@ static void login_clicked(GtkButton *button, gpointer data) {
 static void show_register(App *app, const NetReply *reply) {
     if (reply->error || reply->status) {
         char *message = response_error(reply);
+        set_inline_error(app->signup_error, message);
         set_status(app, message); g_free(message); return;
     }
+    set_inline_error(app->signup_error, NULL);
     gtk_editable_set_text(GTK_EDITABLE(app->reg_password), "");
     set_status(app, "Đăng ký thành công. Hãy đăng nhập.");
     show_page(app, "login");
@@ -226,10 +341,30 @@ static void register_clicked(GtkButton *button, gpointer data) {
     const char *last = gtk_editable_get_text(GTK_EDITABLE(app->reg_last));
     const char *email = gtk_editable_get_text(GTK_EDITABLE(app->reg_email));
     const char *password = gtk_editable_get_text(GTK_EDITABLE(app->reg_password));
-    if (!*first || !*last || !*email || !*password) { set_status(app, "Điền đủ thông tin đăng ký."); return; }
+    const char *phone = gtk_editable_get_text(GTK_EDITABLE(app->reg_phone));
+    if (!*first || !*last || !*email || !*password || !*phone) {
+        set_inline_error(app->signup_error, "Vui lòng điền đủ họ tên, email, số điện thoại và mật khẩu.");
+        set_status(app, "Đăng ký chưa gửi: còn trường bắt buộc."); return;
+    }
+    if (!g_regex_match_simple("^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$", email, 0, 0)) {
+        set_inline_error(app->signup_error, "Email chưa đúng định dạng, ví dụ ten@email.com.");
+        set_status(app, "Email chưa đúng định dạng."); return;
+    }
+    if (!g_regex_match_simple("^[0-9]{10}$", phone, 0, 0)) {
+        set_inline_error(app->signup_error, "Số điện thoại cần có đúng 10 chữ số.");
+        set_status(app, "Số điện thoại chưa hợp lệ."); return;
+    }
+    gboolean has_letter=FALSE,has_digit=FALSE;
+    for (const char *p=password;*p;p++) { if (g_ascii_isalpha(*p)) has_letter=TRUE; if (g_ascii_isdigit(*p)) has_digit=TRUE; }
+    if (strlen(password)<8 || strlen(password)>72 || !has_letter || !has_digit) {
+        set_inline_error(app->signup_error, "Mật khẩu cần 8–72 ký tự, có ít nhất một chữ cái tiếng Anh và một chữ số.");
+        set_status(app, "Mật khẩu chưa đáp ứng yêu cầu."); return;
+    }
+    set_inline_error(app->signup_error, NULL);
     JsonBuilder *builder = object_builder();
     add_string(builder, "first_name", first); add_string(builder, "last_name", last);
     add_string(builder, "email", email); add_string(builder, "password", password);
+    add_string(builder, "phone_number", phone);
     json_builder_end_object(builder);
     set_status(app, "Đang đăng ký...");
     request(app, MSG_REGISTER, make_json(builder), show_register);
@@ -307,20 +442,6 @@ static void add_flight_row(App *app, const char *id, const char *number,
     g_free(price_text);
 }
 
-static void populate_mock_flights(App *app, const char *from, const char *to, const char *date) {
-    clear_results(app);
-    char t1[96], t2[96], t3[96], t4[96];
-    g_snprintf(t1, sizeof(t1), "%s  ·  08:30 - 10:45", date);
-    g_snprintf(t2, sizeof(t2), "%s  ·  11:15 - 13:25", date);
-    g_snprintf(t3, sizeof(t3), "%s  ·  14:00 - 16:15", date);
-    g_snprintf(t4, sizeof(t4), "%s  ·  17:45 - 20:00", date);
-
-    add_flight_row(app, "VN-245", "VN-245", "Vietnam Airlines", from, to, t1, 1850000);
-    add_flight_row(app, "VJ-134", "VJ-134", "Vietjet Air", from, to, t2, 1290000);
-    add_flight_row(app, "QH-202", "QH-202", "Bamboo Airways", from, to, t3, 1650000);
-    add_flight_row(app, "VU-331", "VU-331", "Vietravel Airlines", from, to, t4, 1150000);
-}
-
 static void selected_flight(GtkListBox *list, GtkListBoxRow *row, gpointer data) {
     (void)list;
     if (!row) return;
@@ -328,22 +449,7 @@ static void selected_flight(GtkListBox *list, GtkListBoxRow *row, gpointer data)
     const char *flight_id = g_object_get_data(G_OBJECT(row), "flight-id");
     if (!flight_id || !*flight_id) return;
 
-    const char *from = gtk_editable_get_text(GTK_EDITABLE(app->from));
-    const char *to = gtk_editable_get_text(GTK_EDITABLE(app->to));
-    const char *date = gtk_editable_get_text(GTK_EDITABLE(app->date));
-
-    char *info_text = g_strdup_printf(
-        "MÃ CHUYẾN BAY: %s\n\n"
-        "✦ Tuyến bay: %s  →  %s\n"
-        "✦ Ngày khởi hành: %s\n"
-        "✦ Hạng dịch vụ: Phổ thông linh hoạt (Economy Flex)\n"
-        "✦ Tiêu chuẩn hành lý: 12kg xách tay + 23kg ký gửi\n"
-        "✦ Trạng thái: Còn 18 ghế trống\n"
-        "✦ Suất ăn: Đã bao gồm bữa ăn nóng & đồ uống\n\n"
-        "Bấm 'Vé của tôi' để theo dõi vé sau khi hoàn tất đặt vé.",
-        flight_id, *from ? from : "Điểm đi", *to ? to : "Điểm đến", *date ? date : "2026-11-17");
-    gtk_label_set_text(GTK_LABEL(app->detail), info_text);
-    g_free(info_text);
+    gtk_label_set_text(GTK_LABEL(app->detail), "Đang tải chi tiết chuyến bay...");
     show_page(app, "detail");
 
     JsonBuilder *builder = object_builder();
@@ -354,8 +460,12 @@ static void selected_flight(GtkListBox *list, GtkListBoxRow *row, gpointer data)
 
 static void show_flights(App *app, const NetReply *reply) {
     if (reply->error || reply->status) {
+        char *message = response_error(reply); set_status(app, message); g_free(message);
+        set_inline_error(app->flight_error, message);
+        clear_results(app);
         return;
     }
+    set_inline_error(app->flight_error, NULL);
     JsonParser *parser = NULL;
     JsonObject *obj = parse_object(reply->body, &parser);
     JsonNode *data = obj && json_object_has_member(obj, "data")
@@ -391,35 +501,36 @@ static void search_clicked(GtkButton *button, gpointer data) {
     const char *to = gtk_editable_get_text(GTK_EDITABLE(app->to));
     const char *date = gtk_editable_get_text(GTK_EDITABLE(app->date));
     if (!*from || !*to || !*date || strcmp(from, to) == 0) {
+        set_inline_error(app->flight_error, "Hãy nhập điểm đi, điểm đến khác nhau và ngày bay.");
         set_status(app, "Vui lòng nhập điểm đi và điểm đến khác nhau.");
         return;
     }
+    set_inline_error(app->flight_error, NULL);
 
-    populate_mock_flights(app, from, to, date);
+    clear_results(app);
     show_page(app, "flights");
-    set_status(app, "Chọn một chuyến bay để xem chi tiết hành trình.");
+    set_status(app, "Đang tìm chuyến bay...");
 
     JsonBuilder *builder = object_builder();
-    add_string(builder, "departureCity", from);
-    add_string(builder, "arrivalCity", to);
+    char **from_parts = g_strsplit(from, " (", 2);
+    char **to_parts = g_strsplit(to, " (", 2);
+    add_string(builder, "departureCity", from_parts[0]);
+    add_string(builder, "arrivalCity", to_parts[0]);
     add_string(builder, "flightDate", date);
+    add_string(builder, "class", gtk_combo_box_get_active_id(GTK_COMBO_BOX(app->flight_class)));
+    json_builder_set_member_name(builder, "adults");
+    json_builder_add_int_value(builder, gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->adults)));
+    json_builder_set_member_name(builder, "children");
+    json_builder_add_int_value(builder, gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->children)));
+    json_builder_set_member_name(builder, "infants");
+    json_builder_add_int_value(builder, gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->infants)));
     json_builder_end_object(builder);
+    g_strfreev(from_parts); g_strfreev(to_parts);
     request(app, MSG_SEARCH, make_json(builder), show_flights);
 }
 
 static void list_clicked(GtkButton *button, gpointer data) {
-    (void)button;
-    App *app = data;
-    const char *from = gtk_editable_get_text(GTK_EDITABLE(app->from));
-    const char *to = gtk_editable_get_text(GTK_EDITABLE(app->to));
-    const char *date = gtk_editable_get_text(GTK_EDITABLE(app->date));
-    populate_mock_flights(app,
-        (*from && *from != ' ') ? from : "Hà Nội",
-        (*to && *to != ' ') ? to : "TP. Hồ Chí Minh",
-        (*date && *date != ' ') ? date : "2026-11-17");
-    show_page(app, "flights");
-    set_status(app, "Danh sách chuyến bay gợi ý.");
-    request(app, MSG_FLIGHT_LIST, g_strdup("{\"page\":1,\"limit\":10}"), show_flights);
+    search_clicked(button, data);
 }
 
 static void add_class(GtkWidget *widget, const char *name) {
@@ -468,6 +579,68 @@ static GtkWidget *ui_field(GtkWidget *parent, const char *title,
     gtk_box_append(GTK_BOX(group), *entry);
     gtk_box_append(GTK_BOX(parent), group);
     return group;
+}
+
+static void show_profile(App *app, const NetReply *reply) {
+    if (reply->error || reply->status) {
+        char *message = response_error(reply); set_inline_error(app->account_error,message); set_status(app, message); g_free(message); return;
+    }
+    set_inline_error(app->account_error,NULL);
+    JsonParser *parser = NULL;
+    JsonObject *p = parse_object(reply->body, &parser);
+    if (p) {
+        gtk_editable_set_text(GTK_EDITABLE(app->profile_first), json_string(p,"firstName"));
+        gtk_editable_set_text(GTK_EDITABLE(app->profile_last), json_string(p,"lastName"));
+        gtk_editable_set_text(GTK_EDITABLE(app->profile_phone), json_string(p,"phoneNumber"));
+        gtk_editable_set_text(GTK_EDITABLE(app->profile_birth), json_string(p,"dateOfBirth"));
+        gtk_editable_set_text(GTK_EDITABLE(app->profile_id), json_string(p,"identificationNumber"));
+        gtk_editable_set_text(GTK_EDITABLE(app->profile_address), json_string(p,"address"));
+        const char *gender = json_string(p,"gender");
+        gtk_combo_box_set_active_id(GTK_COMBO_BOX(app->profile_gender), *gender ? gender : "Other");
+        set_status(app, "Đã tải hồ sơ.");
+    }
+    if (parser) g_object_unref(parser);
+}
+
+static void account_clicked(GtkButton *button, gpointer data) {
+    (void)button;
+    App *app = data;
+    if (!app->logged_in) { show_page(app, "login"); return; }
+    show_page(app, "account");
+    request(app, MSG_PROFILE, g_strdup("{}"), show_profile);
+}
+
+static void save_profile_clicked(GtkButton *button, gpointer data) {
+    (void)button; App *app = data;
+    JsonBuilder *b = object_builder();
+    add_string(b,"firstName",gtk_editable_get_text(GTK_EDITABLE(app->profile_first)));
+    add_string(b,"lastName",gtk_editable_get_text(GTK_EDITABLE(app->profile_last)));
+    add_string(b,"phoneNumber",gtk_editable_get_text(GTK_EDITABLE(app->profile_phone)));
+    add_string(b,"dateOfBirth",gtk_editable_get_text(GTK_EDITABLE(app->profile_birth)));
+    add_string(b,"gender",gtk_combo_box_get_active_id(GTK_COMBO_BOX(app->profile_gender)));
+    add_string(b,"identificationNumber",gtk_editable_get_text(GTK_EDITABLE(app->profile_id)));
+    add_string(b,"address",gtk_editable_get_text(GTK_EDITABLE(app->profile_address)));
+    json_builder_end_object(b);
+    request(app,MSG_UPDATE,make_json(b),show_profile);
+}
+
+static void show_password_changed(App *app, const NetReply *reply) {
+    if (reply->error || reply->status) {
+        char *message=response_error(reply);set_inline_error(app->account_error,message);set_status(app,message);g_free(message);return;
+    }
+    set_inline_error(app->account_error,NULL);
+    gtk_editable_set_text(GTK_EDITABLE(app->password_old),"");
+    gtk_editable_set_text(GTK_EDITABLE(app->password_new),"");
+    set_status(app,"Đã đổi mật khẩu. Các thiết bị khác đã đăng xuất.");
+}
+
+static void change_password_clicked(GtkButton *button, gpointer data) {
+    (void)button;App *app=data;
+    JsonBuilder *b=object_builder();
+    add_string(b,"oldPassword",gtk_editable_get_text(GTK_EDITABLE(app->password_old)));
+    add_string(b,"newPassword",gtk_editable_get_text(GTK_EDITABLE(app->password_new)));
+    json_builder_end_object(b);
+    request(app,MSG_PASSWORD,make_json(b),show_password_changed);
 }
 
 static void on_calendar_day_selected(GtkCalendar *cal, gpointer user_data) {
@@ -546,7 +719,54 @@ static void on_airport_picker_clicked(GtkButton *btn, gpointer user_data) {
     gtk_popover_popup(GTK_POPOVER(popover));
 }
 
-static GtkWidget *ui_airport_field(const char *title, const char *default_val,
+static char *airport_fold(const char *text) {
+    char *normalized=g_utf8_normalize(text ? text : "",-1,G_NORMALIZE_NFD);
+    GString *folded=g_string_new(NULL);
+    for (const char *p=normalized;*p;) {
+        gunichar c=g_utf8_get_char(p);
+        if (!g_unichar_combining_class(c)) g_string_append_unichar(folded,g_unichar_tolower(c));
+        p=g_utf8_next_char(p);
+    }
+    g_free(normalized);
+    return g_string_free(folded,FALSE);
+}
+
+static gboolean airport_matches(const char *query,const char *label) {
+    char *folded_query=airport_fold(query),*folded_label=airport_fold(label);
+    char **tokens=g_strsplit_set(folded_query," \t",-1);
+    gboolean matches=TRUE;
+    for (guint i=0;tokens[i] && matches;i++)
+        if (*tokens[i] && !strstr(folded_label,tokens[i])) matches=FALSE;
+    if (!matches) {
+        GString *q=g_string_new(NULL),*l=g_string_new(NULL);
+        for (const char *p=folded_query;*p;p=g_utf8_next_char(p)) {gunichar c=g_utf8_get_char(p);if(g_unichar_isalnum(c))g_string_append_unichar(q,c);}
+        for (const char *p=folded_label;*p;p=g_utf8_next_char(p)) {gunichar c=g_utf8_get_char(p);if(g_unichar_isalnum(c))g_string_append_unichar(l,c);}
+        matches=q->len>0 && strstr(l->str,q->str)!=NULL;
+        g_string_free(q,TRUE);g_string_free(l,TRUE);
+    }
+    g_strfreev(tokens);g_free(folded_query);g_free(folded_label);
+    return matches;
+}
+
+static void airport_filter_changed(GtkEditable *editable,gpointer user_data) {
+    GtkWidget *list=user_data;
+    const char *query=gtk_editable_get_text(editable);
+    guint matches=0;
+    for (GtkWidget *child=gtk_widget_get_first_child(list);child;child=gtk_widget_get_next_sibling(child)) {
+        if (!GTK_IS_BUTTON(child)) continue;
+        const char *label=g_object_get_data(G_OBJECT(child),"airport_val");
+        gboolean visible=airport_matches(query,label);
+        gtk_widget_set_visible(child,visible);
+        if (visible) matches++;
+    }
+    GtkWidget *empty=g_object_get_data(G_OBJECT(list),"empty_label");
+    if (empty) {
+        gtk_label_set_text(GTK_LABEL(empty),matches ? "" : "Không tìm thấy sân bay phù hợp.");
+        gtk_widget_set_visible(empty,matches==0);
+    }
+}
+
+static GtkWidget *ui_airport_field(App *app, const char *title, const char *default_val,
                                   const char *icon_path, GtkWidget **entry_out) {
     GtkWidget *field = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     add_class(field, "search-field");
@@ -567,23 +787,22 @@ static GtkWidget *ui_airport_field(const char *title, const char *default_val,
     gtk_widget_set_parent(popover, field);
 
     GtkWidget *list_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    if (entry_out == &app->from) app->airport_from_list = list_box;
+    else app->airport_to_list = list_box;
     gtk_widget_set_margin_start(list_box, 6);
     gtk_widget_set_margin_end(list_box, 6);
     gtk_widget_set_margin_top(list_box, 6);
     gtk_widget_set_margin_bottom(list_box, 6);
 
-    const char *airports[] = {
-        "Hà Nội (HAN)", "TP. Hồ Chí Minh (SGN)", "Đà Nẵng (DAD)",
-        "Nha Trang (CXR)", "Phú Quốc (PQC)", "Đà Lạt (DLI)",
-        "Hải Phòng (HPH)", "Huế (HUI)", "Bangkok (BKK)"
-    };
-    for (guint i = 0; i < G_N_ELEMENTS(airports); i++) {
-        GtkWidget *item = ui_button(airports[i], "airport-popover-item",
-                                    G_CALLBACK(on_airport_chosen), entry);
-        g_object_set_data(G_OBJECT(item), "airport_val", (gpointer)airports[i]);
-        g_object_set_data(G_OBJECT(item), "popover", popover);
-        gtk_box_append(GTK_BOX(list_box), item);
-    }
+    GtkWidget *empty=ui_label("Đang tải sân bay...", "muted");
+    gtk_box_append(GTK_BOX(list_box),empty);
+    if (entry_out == &app->from) app->airport_from_empty=empty;
+    else app->airport_to_empty=empty;
+    g_object_set_data(G_OBJECT(list_box),"empty_label",empty);
+    g_object_set_data(G_OBJECT(list_box), "entry", entry);
+    g_object_set_data(G_OBJECT(list_box), "popover", popover);
+    g_signal_connect(entry,"changed",G_CALLBACK(airport_filter_changed),list_box);
+    g_signal_connect(entry,"activate",G_CALLBACK(on_airport_picker_clicked),popover);
     gtk_popover_set_child(GTK_POPOVER(popover), list_box);
 
     GtkWidget *icon_btn = gtk_button_new();
@@ -597,6 +816,38 @@ static GtkWidget *ui_airport_field(const char *title, const char *default_val,
     gtk_box_append(GTK_BOX(field), icon_btn);
     gtk_box_append(GTK_BOX(field), content);
     return field;
+}
+
+static void show_airports(App *app, const NetReply *reply) {
+    if (reply->error || reply->status) return;
+    JsonParser *parser=NULL;JsonObject *obj=parse_object(reply->body,&parser);
+    JsonNode *node=obj ? json_object_get_member(obj,"data") : NULL;
+    if (!node || !JSON_NODE_HOLDS_ARRAY(node)) {if(parser)g_object_unref(parser);return;}
+    JsonArray *items=json_node_get_array(node);
+    GtkWidget *lists[]={app->airport_from_list,app->airport_to_list};
+    GtkWidget *empties[]={app->airport_from_empty,app->airport_to_empty};
+    for (guint j=0;j<2;j++) {
+        GtkWidget *list=lists[j],*child=gtk_widget_get_first_child(lists[j]);
+        while (child) {
+            GtkWidget *next=gtk_widget_get_next_sibling(child);
+            if (child!=empties[j]) gtk_box_remove(GTK_BOX(list),child);
+            child=next;
+        }
+        g_object_set_data(G_OBJECT(list),"empty_label",empties[j]);
+        for (guint i=0;i<json_array_get_length(items);i++) {
+            JsonObject *airport=json_array_get_object_element(items,i);
+            const char *city=json_string(airport,"city"),*code=json_string(airport,"airport");
+            char *label=g_strdup_printf("%s (%s)",city,code);
+            GtkWidget *item=ui_button(label,"airport-popover-item",G_CALLBACK(on_airport_chosen),g_object_get_data(G_OBJECT(list),"entry"));
+            g_object_set_data_full(G_OBJECT(item),"airport_val",label,g_free);
+            g_object_set_data(G_OBJECT(item),"popover",g_object_get_data(G_OBJECT(list),"popover"));
+            gtk_box_append(GTK_BOX(list),item);
+        }
+        gtk_widget_set_visible(empties[j],json_array_get_length(items)==0);
+        gtk_label_set_text(GTK_LABEL(empties[j]),json_array_get_length(items)==0 ? "Server chưa có dữ liệu sân bay." : "Không tìm thấy sân bay phù hợp.");
+        airport_filter_changed(GTK_EDITABLE(g_object_get_data(G_OBJECT(list),"entry")),list);
+    }
+    if(parser)g_object_unref(parser);
 }
 
 static void ui_swap_clicked(GtkButton *button, gpointer data) {
@@ -1055,7 +1306,7 @@ static GtkWidget *ui_home(App *app) {
     GtkWidget *form = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     add_class(form, "search-form");
     gtk_box_append(GTK_BOX(search), form);
-    gtk_box_append(GTK_BOX(form), ui_airport_field("Từ", "Hà Nội (HAN)",
+    gtk_box_append(GTK_BOX(form), ui_airport_field(app, "Từ", "Ha Noi (Noi Bai)",
         "/vn/ltm/flight/pin.svg", &app->from));
     GtkWidget *swap = gtk_button_new();
     add_class(swap, "swap-button");
@@ -1064,10 +1315,30 @@ static GtkWidget *ui_home(App *app) {
     gtk_widget_set_tooltip_text(swap, "Đổi điểm đi và điểm đến");
     g_signal_connect(swap, "clicked", G_CALLBACK(ui_swap_clicked), app);
     gtk_box_append(GTK_BOX(form), swap);
-    gtk_box_append(GTK_BOX(form), ui_airport_field("Đến", "TP. Hồ Chí Minh (SGN)",
+    gtk_box_append(GTK_BOX(form), ui_airport_field(app, "Đến", "Ho Chi Minh City (Tan Son Nhat)",
         "/vn/ltm/flight/pin.svg", &app->to));
     gtk_box_append(GTK_BOX(form), ui_date_field("Ngày đi", &app->date));
     gtk_box_append(GTK_BOX(form), ui_search_submit(app));
+    GtkWidget *filters = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_margin_start(filters, 20);
+    gtk_widget_set_margin_top(filters, 8);
+    gtk_box_append(GTK_BOX(filters), ui_label("Người lớn", "muted"));
+    app->adults = gtk_spin_button_new_with_range(1, 9, 1);
+    gtk_box_append(GTK_BOX(filters), app->adults);
+    gtk_box_append(GTK_BOX(filters), ui_label("Trẻ em", "muted"));
+    app->children = gtk_spin_button_new_with_range(0, 8, 1);
+    gtk_box_append(GTK_BOX(filters), app->children);
+    gtk_box_append(GTK_BOX(filters), ui_label("Em bé", "muted"));
+    app->infants = gtk_spin_button_new_with_range(0, 9, 1);
+    gtk_box_append(GTK_BOX(filters), app->infants);
+    gtk_box_append(GTK_BOX(filters), ui_label("Hạng ghế", "muted"));
+    app->flight_class = gtk_combo_box_text_new();
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(app->flight_class), "economy", "Phổ thông");
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(app->flight_class), "business", "Thương gia");
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(app->flight_class), "firstClass", "Hạng nhất");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(app->flight_class), 0);
+    gtk_box_append(GTK_BOX(filters), app->flight_class);
+    gtk_box_append(GTK_BOX(search), filters);
     GtkWidget *search_footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     add_class(search_footer, "search-footer");
     gtk_box_append(GTK_BOX(search_footer), ui_label("◉  Một chiều", "trip-type"));
@@ -1217,12 +1488,18 @@ static GtkWidget *ui_auth(App *app, gboolean signup) {
     gtk_box_append(GTK_BOX(card), ui_label(signup
         ? "Bắt đầu khám phá những chuyến bay cùng LTM Flight."
         : "Chào mừng trở lại! Đăng nhập để tiếp tục.", "muted"));
+    GtkWidget *error_label=ui_label("", "form-error");
+    gtk_widget_set_visible(error_label,FALSE);
+    gtk_box_append(GTK_BOX(card),error_label);
     if (signup) {
+        app->signup_error=error_label;
         ui_field(card, "TÊN", "Tên của bạn", &app->reg_first, FALSE);
         ui_field(card, "HỌ", "Họ của bạn", &app->reg_last, FALSE);
         ui_field(card, "EMAIL", "you@example.com", &app->reg_email, FALSE);
+        ui_field(card, "SỐ ĐIỆN THOẠI", "10 chữ số", &app->reg_phone, FALSE);
         ui_field(card, "MẬT KHẨU", "Nhập mật khẩu", &app->reg_password, TRUE);
     } else {
+        app->login_error=error_label;
         ui_field(card, "EMAIL", "you@example.com", &app->login_email, FALSE);
         ui_field(card, "MẬT KHẨU", "Nhập mật khẩu", &app->login_password, TRUE);
     }
@@ -1286,6 +1563,7 @@ static void activate(GtkApplication *gtk_app, gpointer data) {
     ui_nav_add(app->nav, app, "Trang chủ", "home", FALSE);
     ui_nav_add(app->nav, app, "Chuyến bay", "flights", FALSE);
     ui_nav_add(app->nav, app, "Vé của tôi", "tickets", FALSE);
+    gtk_box_append(GTK_BOX(app->nav), ui_button("Tài khoản", "nav-link", G_CALLBACK(account_clicked), app));
     gtk_box_append(GTK_BOX(header), app->nav);
 
     GtkWidget *account = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
@@ -1297,17 +1575,25 @@ static void activate(GtkApplication *gtk_app, gpointer data) {
     gtk_widget_set_valign(search_btn, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(account), search_btn);
 
-    GtkWidget *login_btn = ui_button("Đăng nhập", "header-btn-login",
+    app->header_login = ui_button("Đăng nhập", "header-btn-login",
                                      G_CALLBACK(ui_nav_clicked), app);
-    g_object_set_data(G_OBJECT(login_btn), "page", (gpointer)"login");
-    gtk_widget_set_valign(login_btn, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(account), login_btn);
+    g_object_set_data(G_OBJECT(app->header_login), "page", (gpointer)"login");
+    gtk_widget_set_valign(app->header_login, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(account), app->header_login);
 
-    GtkWidget *signup_btn = ui_button("Đăng ký", "header-btn-signup",
+    app->header_signup = ui_button("Đăng ký", "header-btn-signup",
                                       G_CALLBACK(ui_nav_clicked), app);
-    g_object_set_data(G_OBJECT(signup_btn), "page", (gpointer)"signup");
-    gtk_widget_set_valign(signup_btn, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(account), signup_btn);
+    g_object_set_data(G_OBJECT(app->header_signup), "page", (gpointer)"signup");
+    gtk_widget_set_valign(app->header_signup, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(account), app->header_signup);
+
+    app->header_user=ui_label("", "muted");
+    gtk_widget_set_valign(app->header_user,GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(account),app->header_user);
+    app->header_logout = ui_button("Đăng xuất", "header-btn-login",
+                                      G_CALLBACK(logout_clicked), app);
+    gtk_box_append(GTK_BOX(account), app->header_logout);
+    set_auth_header(app);
 
     gtk_box_append(GTK_BOX(header), account);
     gtk_box_append(GTK_BOX(root), header);
@@ -1335,6 +1621,9 @@ static void activate(GtkApplication *gtk_app, gpointer data) {
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), app->results);
     gtk_widget_set_vexpand(scroller, TRUE);
     gtk_box_append(GTK_BOX(body), scroller);
+    app->flight_error=ui_label("","form-error");
+    gtk_widget_set_visible(app->flight_error,FALSE);
+    gtk_box_append(GTK_BOX(body),app->flight_error);
     gtk_stack_add_named(GTK_STACK(app->stack), flights, "flights");
 
     GtkWidget *detail = ui_content_page("CHI TIẾT CHUYẾN BAY", "Thông tin hành trình",
@@ -1348,6 +1637,32 @@ static void activate(GtkApplication *gtk_app, gpointer data) {
     gtk_box_append(GTK_BOX(body), ui_label(
         "Tính năng tra cứu vé sẽ có khi Go bridge hỗ trợ nghiệp vụ đặt vé.", "muted"));
     gtk_stack_add_named(GTK_STACK(app->stack), tickets, "tickets");
+    GtkWidget *account_page = ui_content_page("TÀI KHOẢN", "Thông tin cá nhân",
+        "Thông tin này dùng để điền form liên hệ và hành khách.", &body);
+    app->account_error=ui_label("","form-error");
+    gtk_widget_set_visible(app->account_error,FALSE);
+    gtk_box_append(GTK_BOX(body),app->account_error);
+    ui_field(body,"Tên","Tên",&app->profile_first,FALSE);
+    ui_field(body,"Họ","Họ",&app->profile_last,FALSE);
+    ui_field(body,"Số điện thoại","10 chữ số",&app->profile_phone,FALSE);
+    ui_field(body,"Ngày sinh","YYYY-MM-DD",&app->profile_birth,FALSE);
+    gtk_box_append(GTK_BOX(body), ui_label("Giới tính", "field-caption"));
+    app->profile_gender=gtk_combo_box_text_new();
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(app->profile_gender),"Male","Nam");
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(app->profile_gender),"Female","Nữ");
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(app->profile_gender),"Other","Khác");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(app->profile_gender),2);
+    gtk_box_append(GTK_BOX(body),app->profile_gender);
+    ui_field(body,"CCCD","CCCD",&app->profile_id,FALSE);
+    ui_field(body,"Địa chỉ","Địa chỉ",&app->profile_address,FALSE);
+    gtk_box_append(GTK_BOX(body),ui_button("Lưu hồ sơ","primary-button",G_CALLBACK(save_profile_clicked),app));
+    gtk_box_append(GTK_BOX(body),ui_label("Đổi mật khẩu", "section-title"));
+    ui_field(body,"Mật khẩu cũ","Mật khẩu hiện tại",&app->password_old,TRUE);
+    ui_field(body,"Mật khẩu mới","Ít nhất 8 ký tự, có chữ và số",&app->password_new,TRUE);
+    gtk_box_append(GTK_BOX(body),ui_button("Đổi mật khẩu","secondary-button",G_CALLBACK(change_password_clicked),app));
+    GtkWidget *account_scroll=gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(account_scroll),account_page);
+    gtk_stack_add_named(GTK_STACK(app->stack),account_scroll,"account");
     show_page(app, "home");
     gtk_box_append(GTK_BOX(root), app->stack);
     GtkWidget *status_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
@@ -1360,6 +1675,13 @@ static void activate(GtkApplication *gtk_app, gpointer data) {
     gtk_box_append(GTK_BOX(root), status_box);
     gtk_window_set_child(GTK_WINDOW(app->window), root);
     gtk_window_present(GTK_WINDOW(app->window));
+    request(app, MSG_AIRPORTS, g_strdup("{}"), show_airports);
+    if (app->session_id) {
+        JsonBuilder *b = object_builder();
+        add_string(b, "sessionId", app->session_id);
+        json_builder_end_object(b);
+        request(app, MSG_RESUME, make_json(b), show_resume);
+    }
 #ifndef HAVE_GST
     if (ui_animations_enabled())
         app->hero_timer = g_timeout_add_seconds(8, ui_hero_tick, app);
@@ -1381,8 +1703,16 @@ int main(int argc, char **argv) {
     App app = {0};
     app.network = net_client_new(host, (uint16_t)parsed);
     if (!app.network) { g_printerr("Không khởi tạo được Winsock/client TCP.\n"); return 1; }
+    char *saved_path = session_path();
+    char *saved_id = NULL;
+    if (g_file_get_contents(saved_path, &saved_id, NULL, NULL) && strlen(saved_id) == 64) {
+        app.session_id = g_strdup(saved_id);
+        net_client_set_session(app.network, app.session_id);
+    }
+    g_free(saved_id); g_free(saved_path);
     app.queue = g_async_queue_new();
     app.worker = g_thread_new("tcp-client", network_worker, &app);
+    net_client_set_push_handler(app.network, push_received, &app);
     GtkApplication *gtk_app = gtk_application_new("vn.ltm.flight", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(gtk_app, "activate", G_CALLBACK(activate), &app);
     int rc = g_application_run(G_APPLICATION(gtk_app), argc, argv);
@@ -1396,6 +1726,7 @@ int main(int argc, char **argv) {
     g_thread_join(app.worker);
     g_async_queue_unref(app.queue);
     net_client_free(app.network);
+    g_free(app.session_id);
     g_object_unref(gtk_app);
     return rc;
 }
